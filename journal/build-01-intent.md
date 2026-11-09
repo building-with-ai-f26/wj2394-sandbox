@@ -85,10 +85,11 @@ Optional working notes. Publish your required build log on `docs/index.html`; no
 - **How you diagnosed and fixed (or rolled back) them:** 
 
 ## 5. What it cost
-- **Agent / Token spend this week:** `$___`
-- **Hosting / API runtime spend this week:** `$___`
-- **Your hours spent this week:** `___ hrs`
-- **Cumulative project spend to date:** `$___`
+- **Agent / Token spend this week:** $4.62 estimated ChatGPT Plus subscription allocation, before tax; not a per-token charge. Assumes $20/month × 12 ÷ 52. Actual receipt not checked.
+- **Hosting / API runtime spend this week:** $0 runtime API cost; no paid hosting expense reported for this checkpoint.
+- **Your hours spent this week:** Approximately 5 hours, estimated from the November 8, 8:21 p.m. to November 9, 1:19 a.m. commit activity window (4h 57m), America/New_York. May include idle time; overlapping chat and GitHub activity is not added twice. Message reader does not expose timestamps; this estimate uses commit timestamps.
+- **Cumulative project spend to date:** $4.62 estimated subscription allocation; $0 runtime API cost. Separate from the full monthly subscription payment.
+- **Approval:** Builder approved these estimates and the public build-log wording on November 9, 2026. Starting with Build 2 (due November 16), record observed session times during work and preserve evidence/limitations; no unattended monitoring or Monday scheduler configured.
 
 ## 6. Pod Critique Sign-off
 - **Tested by podmate(s):** 
