@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {mapsURL,parseCSV,importCSV,ready,validateBackup} = require('../prototype/imports.js');
+const {mapsURL,parseCSV,importCSV,ready,validateBackup} = require('../docs/prototype/imports.js');
 const url = 'https://www.google.com/maps/place/Example';
 test('quoted commas, escaped quotes, multiline notes and BOM are preserved',()=>{
   const csv='\uFEFFTitle,Note,URL\r\n"Example, NYC","Say ""hello""\nand linger",'+url;

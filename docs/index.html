@@ -158,11 +158,15 @@
       <h2>Product Showcase (Prototype / Live App / 2-Min Video)</h2>
       <p>
         <strong>Current Status:</strong> Build 1 checkpoint approved for repository push. Local prototype with personal Maps-link entry, automatic inclusion after CSV import, editable statuses, and a separate fictional sample guide.<br />
-        <strong>Demo:</strong> <a href="../prototype/index.html">Open the Inner Table. prototype locally</a>. Serve the repository root using <code>python -m http.server 8000 --bind 127.0.0.1</code>, then open <code>http://127.0.0.1:8000/prototype/</code>. Screenshot or GIF still to be added after visual review; cloud app URL planned for Build 5.
+        <strong>Demo:</strong> <a href="prototype/">Open the Inner Table. prototype</a>. Serve the repository root using <code>python -m http.server 8000 --bind 127.0.0.1</code>, then open <code>http://127.0.0.1:8000/docs/prototype/</code>. The prototype link also works on GitHub Pages. A server-backed cloud app remains planned for Build 5.
       </p>
       <p class="meta">
-        Ask your coding agent to embed a screenshot or GIF of your local prototype for Build 1. Keep this evidence current, then add your cloud app link and two-minute video in Build 5.
+        Build 1 screenshot captured from the local prototype on November 9, 2026, using the fictional sample guide. These are not real restaurant listings or personal saved places.
       </p>
+      <figure style="margin: 20px 0 0;">
+        <a href="assets/build-1-prototype.png"><img src="assets/build-1-prototype.png" alt="Inner Table. local prototype showing the Discover page with two fictional places matching a fun outing where friends can hear each other." width="1200" height="1100" style="display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px;" /></a>
+        <figcaption class="meta" style="margin-top: 8px;">Build 1 · Local prototype · Fictional sample data · November 9, 2026. Select the image to view it full size.</figcaption>
+      </figure>
     </section>
 
     <!-- LIVING PRD (Updated every week!) -->
@@ -188,18 +192,19 @@
       <p><strong>Simple Architecture:</strong> Maps link or local CSV file → bulk import preview → automatic guide inclusion and suggested tags → browser local storage → occasion and filters → keyword matching → explained shortlist. Statuses and details remain editable anytime. Optional fictional sample data stays separate. Plain HTML, CSS, and JavaScript; no AI model, external API, server database, or account system in Build 1.</p>
 
       <h3>4. Unit Economics & Analytics Snapshot (Updated Weekly)</h3>
+      <p class="meta">Status reviewed November 9, 2026. Update this snapshot and the current build's cost and time before noon every Monday, America/New_York. Actual build spend and hours still need builder confirmation. This version makes no external model or Maps API calls, so its external API cost per run is $0; coding tools, subscriptions, and build time are separate and not yet recorded. Analytics are not installed yet.</p>
       <div class="grid-2">
         <div class="stat-box">
           <div class="stat-label">Cumulative Build Spend</div>
-          <div class="stat-value">[Record actual spend]</div>
+          <div class="stat-value">Pending builder input</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Est. Cost Per User Run</div>
-          <div class="stat-value">[Not yet estimated]</div>
+          <div class="stat-value">$0 external API cost</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">User Evidence (Analytics from Build 2)</div>
-          <div class="stat-value">[Not yet measured]</div>
+          <div class="stat-value">Not installed yet (Build 2)</div>
         </div>
         <div class="stat-box">
           <div class="stat-label">Sponsor Call (Week 6)</div>
@@ -216,10 +221,10 @@
       <div class="log-entry">
         <h3>Build 1 · Intent.md & Throwaway Prototype (Due Nov 9)</h3>
         <ul>
-          <li><strong>What shipped:</strong> Build 1 checkpoint approved for repository push: redesigned Discover and My places, personal Maps-link entry, CSV import with duplicate/skipped-row counts and automatic guide inclusion, editable visit/endorsement status and details, inferred tag labels, hide/show and Show all in guide, browser persistence, backups, and occasion/neighborhood/budget filtering. All 21 unit tests and browser workflow checks passed. Connect Google remains a future entry point. No hosted-site deployment or real-user testing; real export validation and screenshot/GIF pending.</li>
+          <li><strong>What shipped:</strong> Build 1 checkpoint approved for repository push: redesigned Discover and My places, personal Maps-link entry, CSV import with duplicate/skipped-row counts and automatic guide inclusion, editable visit/endorsement status and details, inferred tag labels, hide/show and Show all in guide, browser persistence, backups, and occasion/neighborhood/budget filtering. All 21 unit tests and browser workflow checks passed. Connect Google remains a future entry point. No hosted-site deployment or real-user testing; real export validation pending; local prototype screenshot embedded above.</li>
           <li><strong>Things learned with AI:</strong> [What you learned from AI practice and Terminus Episodes 1 and 2.]</li>
           <li><strong>What broke / changed in PRD:</strong> Narrowed the first version from a private social platform to one person's local NYC place guide. Imported places appear without mandatory review; all categories are eligible and visit status, notes, and neighborhood are optional. Keep saved-list suggestions separate from personal endorsements. Next priorities: Google review-derived keywords, automatic Google Maps categories, and real place photos. These are not implemented yet; starred-place JSON/GeoJSON import and multi-city discovery also remain planned.</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>Cost & time this week:</strong> Spend and hours not yet recorded</li>
         </ul>
       </div>
 
@@ -228,7 +233,7 @@
         <ul>
           <li><strong>What shipped:</strong> [Local working slice, PostHog verified on this page and the local app, PRD v2, and local setup in AGENTS.md]</li>
           <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>Cost & time this week:</strong> Spend and hours not yet recorded</li>
         </ul>
       </div>
 
@@ -237,7 +242,7 @@
         <ul>
           <li><strong>What shipped:</strong> [End-to-end workflow working with real inputs + PostHog funnel events]</li>
           <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>Cost & time this week:</strong> Spend and hours not yet recorded</li>
         </ul>
       </div>
 
@@ -247,7 +252,7 @@
           <li><strong>Chosen track:</strong> [A: 10-case domain eval and one outside target-user review; OR B: 3–5 outside users and replay findings]</li>
           <li><strong>Results and improvements:</strong> [Before/after evidence; for Track B, fixes to the top three friction points]</li>
           <li><strong>PRD v4 changes:</strong> [What the evidence changed]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>Cost & time this week:</strong> Spend and hours not yet recorded</li>
         </ul>
       </div>
 
@@ -256,7 +261,7 @@
         <ul>
           <li><strong>Launch Ops & Safety:</strong> [Verified no exposed keys, set spend cap, tested 2-minute rollback]</li>
           <li><strong>2-Minute Video & Final Polish:</strong> [Link/embed above]</li>
-          <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
+          <li><strong>Cost & time this week:</strong> Spend and hours not yet recorded</li>
         </ul>
       </div>
     </section>

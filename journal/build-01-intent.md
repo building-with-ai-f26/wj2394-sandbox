@@ -8,7 +8,7 @@ Optional working notes. Publish your required build log on `docs/index.html`; no
 
 ## 1. What you made
 - **PRs / Commits shipped:** Builder approved pushing the current Build 1 checkpoint on November 9. Development paused after this checkpoint; no new hosted-site deployment requested.
-- **Product Page URL / local demo evidence:** Serve locally with `python -m http.server 8000 --bind 127.0.0.1`. App: `http://127.0.0.1:8000/prototype/`; class page: `http://127.0.0.1:8000/docs/`. Screenshot/GIF pending visual review.
+- **Product Page URL / local demo evidence:** Serve locally with `python -m http.server 8000 --bind 127.0.0.1`. App: `http://127.0.0.1:8000/docs/prototype/`; class page: `http://127.0.0.1:8000/docs/`. Visually reviewed screenshot: `docs/assets/build-1-prototype.png`, embedded in the Product Showcase. Public class page: https://building-with-ai-f26.github.io/wj2394-sandbox/ .
 - **Summary of what works now:** Local place guide with Discover and My places, Maps-link entry, Saved-list CSV import with automatic inclusion, editable statuses and endorsements, inferred occasion tags, hide/show and Show all in guide, browser persistence, backup export/restore, and rule-based search. All categories are eligible; visits, notes, and neighborhoods are optional. A separate 12-entry fictional dataset demonstrates the experience. Google reviews, categories, and photos are not fetched yet.
 
 ### Next improvements · deferred at builder's request
@@ -62,6 +62,11 @@ Optional working notes. Publish your required build log on `docs/index.html`; no
 - Bulk visibility persists in browser storage, and an open editor's inclusion checkbox stays synchronized. Browser checks verified restoring a hidden imported place, unchanged visit/endorsement, persistence after reload, and disabled state once all places are included. All 21 unit tests, JavaScript syntax, and whitespace checks passed. No push or deployment.
 
 ## 2. Metacognition ("Learn with AI"): Terminal, Filesystem & Git
+
+### Build 1 evidence and Pages links · November 9, 2026
+- Builder approved embedding a screenshot and fixing GitHub Pages prototype links. Confirmed Pages serves only `main:/docs`; the old link led to a prototype outside the published folder. Moved the canonical app to `docs/prototype/`, fixed return links and test imports, and updated local run URLs.
+- Captured and visually inspected a 1200×1100 local Discover screenshot using fictional sample places, with no personal saved data; embedded it in the class page. Functional browser checks and all 21 unit tests passed after relocation. Class-page image and prototype links checked separately before publication.
+- Added a persistent reporting rule to AGENTS and README: update the economics/analytics snapshot and active build's cost/time before noon Monday in America/New_York. No background schedule configured. Snapshot reviewed November 9: actual build spend/hours pending builder input, no analytics installed, and $0 external API cost per run for this static version. Unknowns replaced misleading zero placeholders.
 
 - **Terminus completed (`The Crypt` & `The Vanished Keeper`):** `[ ] Yes`
 - **3 diagnostic questions your AI tutor asked about how your prototype runs (and your answers in your own words):**

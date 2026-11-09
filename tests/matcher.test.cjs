@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const places = require('../prototype/data.js');
-const {matchPlaces} = require('../prototype/matcher.js');
+const places = require('../docs/prototype/data.js');
+const {matchPlaces} = require('../docs/prototype/matcher.js');
 test('catch-up keeps only conversation-friendly recommended restaurants', () => {
   const {matches} = matchPlaces(places,"Dinner with a friend I haven’t seen in months");
   assert.ok(matches.length > 0);

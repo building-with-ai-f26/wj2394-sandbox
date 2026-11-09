@@ -4,7 +4,8 @@
 
 - **Builder:** [Your Name] (`@github-handle`)
 - **Pod:** 9
-- **Product Page & Living PRD:** [Add your GitHub Pages URL]
+- **Product Page & Living PRD:** https://building-with-ai-f26.github.io/wj2394-sandbox/
+- **Prototype on GitHub Pages:** https://building-with-ai-f26.github.io/wj2394-sandbox/prototype/
 - **App:** runs locally through Week 4; add a cloud URL in Build 5.
 
 ## Start here: Build 1
@@ -49,7 +50,11 @@ From the repository root, run:
 python -m http.server 8000 --bind 127.0.0.1
 ```
 
-Open `http://127.0.0.1:8000/prototype/` for the app, or `http://127.0.0.1:8000/docs/` for the class product page. Stop the server with Ctrl+C. Do not use the repository-root server as a public deployment: it is for local development only.
+Open `http://127.0.0.1:8000/docs/prototype/` for the app, or `http://127.0.0.1:8000/docs/` for the class product page. Stop the server with Ctrl+C. Do not use the repository-root server as a public deployment: it is for local development only.
+
+GitHub Pages publishes `main:/docs`, so the prototype source lives in `docs/prototype/`. Use the Pages URLs above to run the public pages; GitHub's repository file viewer displays source. The old local `/prototype/` path has moved to `/docs/prototype/`. Browser-stored places remain on their original origin: imports made at localhost are not transferred to GitHub Pages; use backup export/restore to move them.
+
+Before noon each Monday (America/New_York), update the class page's **Unit Economics & Analytics Snapshot** and the active weekly build's **Cost & time this week**. Confirm real costs and hours with the builder, date the review, and mark missing values pending. This requirement is recorded in AGENTS.md; it is not an automated schedule.
 
 Run the matching checks with Node.js (built-in test runner; no install):
 

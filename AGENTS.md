@@ -9,7 +9,7 @@
 
 ## 2. Commands
 - **Install dependencies:** None. Python and Node.js must be available.
-- **Run locally:** `python -m http.server 8000 --bind 127.0.0.1`, then open `http://127.0.0.1:8000/prototype/`. Local development only; do not expose the repository-root server publicly.
+- **Run locally:** `python -m http.server 8000 --bind 127.0.0.1`, then open `http://127.0.0.1:8000/docs/prototype/`. Local development only; do not expose the repository-root server publicly.
 - **Run deterministic tests:** `node --test tests/matcher.test.cjs tests/imports.test.cjs`
 - **Run model evals:** Not applicable for Build 1; matching is rule-based. Build 4 track not selected yet.
 
@@ -22,3 +22,9 @@ Personal imported data stays in browser local storage; never copy it into tracke
 4. **Verify changes:** Run relevant checks. For a reproducible logic bug, use a failing test to demonstrate the fix when practical. Record manual checks and known limitations; follow the selected Build 4 evaluation track.
 5. **Zero secrets in code:** Never hardcode API keys, tokens, or credentials. Always read from environment variables (`.env`) and update `.env.example` when new variables are needed.
 6. **Stop when looping:** If a fix fails twice in a row, stop, summarize what failed, and ask the human before trying a third approach.
+
+## 4. Weekly reporting requirement
+- Before **12:00 noon every Monday in America/New_York**, update **Unit Economics & Analytics Snapshot (Updated Weekly)** and the active build's **Cost & time this week** in `docs/index.html`.
+- Record the review date. Use actual builder-confirmed spend and hours and measured analytics when available. Ask for missing figures; mark them pending rather than guessing or treating unknown values as zero. Distinguish runtime API costs from coding tools/subscriptions and total build spend. Preserve earlier weeks' actual records.
+- Keep prototype screenshot evidence current when the UI changes. Use fictional sample data unless the builder explicitly authorizes publishing personal data.
+- This is a persistent project instruction, not a scheduled background task. No scheduler is configured by this file.
