@@ -1,9 +1,9 @@
-# [Project Name]
+# Inner Table.
 
-> **One-line pitch:** [Who is this for, and what job does it do for them?]
+> **One-line pitch:** Where would my friend book? Find places for the occasion, with recommendations from people you trust. Starting in NYC.
 
 - **Builder:** [Your Name] (`@github-handle`)
-- **Pod:** [Pod Name / Number]
+- **Pod:** 9
 - **Product Page & Living PRD:** [Add your GitHub Pages URL]
 - **App:** runs locally through Week 4; add a cloud URL in Build 5.
 
@@ -34,6 +34,32 @@ Create your PostHog account in Week 1. Install it on the Product Page and local 
 [Icerynk](https://www.icerynk.com/c/fa26-tech-gb-2160-dm2-f2/content) holds the assignment instructions and submissions.
 
 ## Local setup
+
+Build 1 is a dependency-free HTML/CSS/JavaScript prototype. Add Google Maps links or import an unzipped Google Takeout Saved-list CSV under **My places**. After one bulk preview/confirmation, imported places are immediately available in Discover; there is no mandatory review of each entry. Any category is eligible, including uncategorized pins. Visit status, endorsement, category, notes, tags, neighborhood, budget, and guide visibility are editable anytime. Hide/show controls exclude a place without deleting it.
+
+Import uses note, list-name, and export-tag keywords to suggest occasion tags. These are labeled as inferred and can be edited; they are not verified suitability claims. List names come from an export column or CSV filename. Cards distinguish saved-list suggestions from personal endorsements and show Been there / Want to try / Not specified. Missing categories, prices, neighborhoods, and visits are not inferred. A place with no price will not match a budget filter, and an uncategorized place will not match an explicit category request such as dinner or coffee. General browsing includes all visible places. NYC remains the initial geographic scope; importing does not verify a place's city. Multi-city discovery is planned later.
+
+Your places are kept in this browser's local storage, not uploaded or written into the repository. Use **Export backup** and **Restore backup** to keep a copy. Use the same browser and origin (`127.0.0.1:8000`) to return to your data. Private browsing or clearing site data can remove it. Storage errors are shown in My places.
+
+Discover keeps your reviewed places separate from the optional 12-entry fictional sample guide. This version does not call an AI model, provide accounts or private sharing, or connect to Google. **Connect Google** is a clearly labeled future entry point, not an authorization button.
+
+From the repository root, run:
+
+```powershell
+python -m http.server 8000 --bind 127.0.0.1
+```
+
+Open `http://127.0.0.1:8000/prototype/` for the app, or `http://127.0.0.1:8000/docs/` for the class product page. Stop the server with Ctrl+C. Do not use the repository-root server as a public deployment: it is for local development only.
+
+Run the matching checks with Node.js (built-in test runner; no install):
+
+```powershell
+node --test tests/matcher.test.cjs tests/imports.test.cjs
+```
+
+No API key is needed. The importer supports English headers `Title`/`Name`/`place_name`, `URL`/`item_content_url`/`google_maps_url`/`maps_url`, and `Note`/`Notes`; handles quoted commas, newlines, and optional collection descriptions; and skips non-Maps URLs and duplicate links. Upload an individual CSV (not the ZIP), up to 2 MB and 2,000 rows. Different short and full URLs for the same place may still need manual deduplication. Actual export variations need checking against your first real file.
+
+Long-term: investigate Google's [Data Portability API](https://developers.google.com/data-portability/schema-reference/save) for consent-based importing and refreshed copies. This requires app verification and eligibility; Google's [current supported-country list](https://support.google.com/accounts/answer/14452558) excludes the US. Do not promise universal access, complete coverage of every Maps list, or continuous sync. CSV import remains the fallback.
 
 Clone **your own repository** and ask your coding agent to document the exact install and run commands here and in `AGENTS.md`.
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>[Your Product Name] · Building with AI (Fall 2026)</title>
+  <title>Inner Table. · Building with AI (Fall 2026)</title>
 
   <!-- Week 1: create your PostHog account only.
        Build 2: paste your project's current PostHog web snippet here,
@@ -143,9 +143,9 @@
   <div class="container">
     <!-- HERO / PRODUCT PITCH -->
     <header>
-      <span class="eyebrow">NYU Stern · Building with AI · Fall 2026</span>
-      <h1>[Your Product Name]</h1>
-      <p class="tagline">[One clear sentence: Who is this for, and what painful job does it do for them?]</p>
+      <span class="eyebrow">NYU Stern · Building with AI · Fall 2026 · Pod 9</span>
+      <h1>Inner Table.</h1>
+      <p class="tagline">Where would my friend book? Find places for the occasion, with recommendations from people you trust. Starting in NYC.</p>
       <div class="cta-row">
         <a class="btn" href="#live-demo" onclick="window.posthog && posthog.capture('clicked_try_product')">See the Product →</a>
         <a class="btn btn-secondary" href="#prd">Read the Living PRD</a>
@@ -157,8 +157,8 @@
     <section id="live-demo">
       <h2>Product Showcase (Prototype / Live App / 2-Min Video)</h2>
       <p>
-        <strong>Current Status:</strong> [Build 1: local prototype / Builds 2–4: local app / Build 5: cloud app]<br />
-        <strong>Demo:</strong> [Add a screenshot or GIF now; add the live cloud app URL in Build 5.]
+        <strong>Current Status:</strong> Build 1 checkpoint approved for repository push. Local prototype with personal Maps-link entry, automatic inclusion after CSV import, editable statuses, and a separate fictional sample guide.<br />
+        <strong>Demo:</strong> <a href="../prototype/index.html">Open the Inner Table. prototype locally</a>. Serve the repository root using <code>python -m http.server 8000 --bind 127.0.0.1</code>, then open <code>http://127.0.0.1:8000/prototype/</code>. Screenshot or GIF still to be added after visual review; cloud app URL planned for Build 5.
       </p>
       <p class="meta">
         Ask your coding agent to embed a screenshot or GIF of your local prototype for Build 1. Keep this evidence current, then add your cloud app link and two-minute video in Build 5.
@@ -171,21 +171,21 @@
       <p class="meta">Updated every week as we test with real users and learn what works.</p>
 
       <h3>1. Target User & The Job to Be Done</h3>
-      <p><strong>Who is this for?</strong> [Name a specific, reachable person or role you have direct access to.]</p>
-      <p><strong>The painful "Before" workflow:</strong> [How do they do this today, and why is it slow, manual, or broken?]</p>
-      <p><strong>The "After" workflow with this product:</strong> [What does your tool do for them in one sitting?]</p>
+      <p><strong>Who is this for?</strong> Friends planning a NYC dinner who want a recommendation from someone whose taste they trust. Initial testers will come from my own friends; specific testers and their feedback are still to be confirmed.</p>
+      <p><strong>The painful "Before" workflow:</strong> A friend texts, “Where should we eat?” I look through scattered Google Maps pins and try to remember which places fit their occasion, budget, and preferred atmosphere. A saved pin does not always mean I have been there or recommend it.</p>
+      <p><strong>The "After" workflow with this product:</strong> A friend describes the outing they have in mind, narrows by neighborhood and budget, and gets a shortlist with a reason for each place. Build 1 lets me add Maps links or import a saved-list CSV and explore it immediately, with editable statuses and clearly labeled tag suggestions from saved notes, list names, and export tags. Personal endorsements stay separate from saved-list suggestions. A fictional sample guide demonstrates the experience before adding data. Google review enrichment, automatic Maps categories, place photos, and sharing with friends are future steps.</p>
 
       <h3>2. Scope & Explicit Non-Goals</h3>
       <ul>
-        <li><strong>In Scope (Core Workflow):</strong> [The 1 main workflow this product does reliably]</li>
-        <li><strong>Out of Scope #1:</strong> [Feature you are deliberately NOT building in 6 weeks]</li>
-        <li><strong>Out of Scope #2:</strong> [Feature you are deliberately NOT building in 6 weeks]</li>
-        <li><strong>Out of Scope #3:</strong> [Feature you are deliberately NOT building in 6 weeks]</li>
+        <li><strong>In Scope (Core Workflow):</strong> Add Maps links or import an unzipped Google Takeout Saved-list CSV, preview and deduplicate links, then explore imported places immediately without reviewing each pin. All categories and uncategorized pins are eligible. Keywords from saved notes, list names, and export tags suggest editable occasion tags, labeled as inferred. Cards distinguish saved-list suggestions from personal endorsements and show optional visit status. Users can edit details, visit status, endorsement, tags, and visibility anytime, or hide/show a place without deleting it. Missing category, neighborhood, price, and visit information stays unknown; filters require matching information. Places stay in browser local storage, with backup export/restore. A separate fictional guide is optional.</li>
+        <li><strong>Out of Scope #1:</strong> Accounts, following, and private access permissions. These are a future direction; the local prototype is not a private social platform.</li>
+        <li><strong>Out of Scope #2:</strong> Direct Google authorization and automatic refreshed imports, Google review enrichment, live prices, reservations, and booking availability. My places reserves a clearly labeled future connection entry point. Google's Data Portability API is a possible route, subject to verification and account eligibility; <a href="https://support.google.com/accounts/answer/14452558">its current supported-country list excludes the US</a>. CSV remains the fallback.</li>
+        <li><strong>Out of Scope #3:</strong> Multi-city discovery and specialized booking, shopping, or nightlife integrations. Any place category can be recommended now; NYC remains the first geographic scope, with other cities planned later.</li>
       </ul>
 
       <h3>3. How It Works Under the Hood & Riskiest Assumption (Week 2+)</h3>
-      <p><strong>Riskiest Assumption:</strong> [What is the #1 technical or user risk that could sink this product?]</p>
-      <p><strong>Simple Architecture:</strong> [User Input] → [Your App / Server] → [AI Model / Tool] → [Output]</p>
+      <p><strong>Riskiest Assumption:</strong> Saved places contain enough personal context to make useful, trustworthy recommendations. We need to test whether friends find the shortlist helpful, and how much manual cleanup real saved pins require.</p>
+      <p><strong>Simple Architecture:</strong> Maps link or local CSV file → bulk import preview → automatic guide inclusion and suggested tags → browser local storage → occasion and filters → keyword matching → explained shortlist. Statuses and details remain editable anytime. Optional fictional sample data stays separate. Plain HTML, CSS, and JavaScript; no AI model, external API, server database, or account system in Build 1.</p>
 
       <h3>4. Unit Economics & Analytics Snapshot (Updated Weekly)</h3>
       <div class="grid-2">
@@ -216,9 +216,9 @@
       <div class="log-entry">
         <h3>Build 1 · Intent.md & Throwaway Prototype (Due Nov 9)</h3>
         <ul>
-          <li><strong>What shipped:</strong> [What you actually built; link your local prototype screenshot or GIF above.]</li>
+          <li><strong>What shipped:</strong> Build 1 checkpoint approved for repository push: redesigned Discover and My places, personal Maps-link entry, CSV import with duplicate/skipped-row counts and automatic guide inclusion, editable visit/endorsement status and details, inferred tag labels, hide/show and Show all in guide, browser persistence, backups, and occasion/neighborhood/budget filtering. All 21 unit tests and browser workflow checks passed. Connect Google remains a future entry point. No hosted-site deployment or real-user testing; real export validation and screenshot/GIF pending.</li>
           <li><strong>Things learned with AI:</strong> [What you learned from AI practice and Terminus Episodes 1 and 2.]</li>
-          <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
+          <li><strong>What broke / changed in PRD:</strong> Narrowed the first version from a private social platform to one person's local NYC place guide. Imported places appear without mandatory review; all categories are eligible and visit status, notes, and neighborhood are optional. Keep saved-list suggestions separate from personal endorsements. Next priorities: Google review-derived keywords, automatic Google Maps categories, and real place photos. These are not implemented yet; starred-place JSON/GeoJSON import and multi-city discovery also remain planned.</li>
           <li><strong>Cost & time this week:</strong> $[0.00] · [0] hours</li>
         </ul>
       </div>
