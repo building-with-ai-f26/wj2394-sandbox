@@ -55,7 +55,7 @@
     const $=selector=>document.querySelector(selector);
     const node=(tag,cls='',text='')=>{const item=document.createElement(tag);item.className=cls;item.textContent=text;return item;};
     function link(text,url) {const item=node('a','',text);const safe=safeURL(url || '');if(safe){item.href=safe;item.target='_blank';item.rel='noopener noreferrer';}return item;}
-    function say(text) {$('#google-status').textContent=text;}
+    function say(text) {const status=$('#google-status');if(status)status.textContent=text;}
     async function request(route,body) {
       const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),20000);
       try {
@@ -109,11 +109,10 @@
     }
     async function batch(items) {
       if(!configured || batching)return;
-      batching=true;$('#google-batch').disabled=true;
-      const targets=items.filter(p=>!data.has(p.id)).slice(0,5);let loaded=0;lastError='';
-      for(const place of targets){if(await enrich(place,{batch:true}))loaded++;if(lastError)break;}
-      batching=false;$('#google-batch').disabled=!configured;
-      say(`${loaded} of ${targets.length} places updated. ${lastError ? 'Some details could not be loaded. You can try again.' : loaded < targets.length ? 'Some places need a match. Choose Find details beside a place.' : 'Your notes and statuses are unchanged.'}`);
+      batching=true;
+      const targets=items.filter(p=>!data.has(p.id)).slice(0,5);lastError='';
+      for(const place of targets){await enrich(place,{batch:true});if(lastError)break;}
+      batching=false;
     }
     async function prepareForPlan(ids) {
       if(!configured) return {checked:0,requested:ids.length,error:'Google details are unavailable.'};
@@ -164,14 +163,12 @@
     }
     async function start() {
       $('#google-match-close').onclick=()=>$('#google-match').close();
-      $('#google-batch').onclick=()=>batch(getPlaces().filter(imports.ready));
       try {
         const response=await fetch('/api/status');if(!response.ok)throw Error();
         const status=await response.json();configured=status.configured;reviewsEnabled=status.reviewsEnabled;
         say(configured?'Your saved places are ready. We can add categories, photos, and review highlights.':'Place details are unavailable right now. Your saved guide still works.');
       }catch{say('Place details are unavailable right now. Your saved guide still works.');}
-      $('#google-batch').disabled=!configured;$('#google-reviews').disabled=!reviewsEnabled;$('#google-auto-import').disabled=!configured;$('#google-auto-import').checked=configured;
-      $('#google-tools').hidden=!configured;
+      $('#google-reviews').disabled=!reviewsEnabled;$('#google-auto-import').disabled=!configured;$('#google-auto-import').checked=configured;
       onUpdate();
     }
     return {start,action,extras,prepareForPlan,enrichImported:items=>$('#google-auto-import').checked?batch(items):Promise.resolve(),merge:place=>mergePlace(place,data.get(place.id)),photo:place=>photos.get(place.id),rematch:place=>enrich(place,{rematch:true}),forget:id=>{data.delete(id);const photo=photos.get(id);if(photo)URL.revokeObjectURL(photo);photos.delete(id);}};

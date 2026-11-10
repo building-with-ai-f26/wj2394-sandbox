@@ -82,3 +82,15 @@ Set `OPENROUTER_API_KEY` in your private `.env` and restart `python server.py --
 Describe an occasion in The plan and send follow-ups to revise it. Conversation history stays in memory until reset or reload. Each send shares the active guide's names, notes, recorded details, tags and review-derived hints with OpenRouter and its model provider. Each plan retrieves likely saved candidates, fetches their available Google details, and ranks them using descriptions, price ranges and a limited review sample. Photos are excluded from AI requests. AI reasons can be inaccurate and require evaluation. A missing key shows a setup message. Static GitHub Pages cannot run these server features.
 
 Run `python usage.py` for private project-report request counts, provider-reported AI tokens and costs. The ledger under `.local/` is Git-ignored and excludes conversation and place contents. Missing billing values stay pending. Run `python -m unittest discover -s tests -p 'test_*.py'` for Python checks and `node --test tests/matcher.test.cjs tests/imports.test.cjs tests/google.test.cjs` for JavaScript checks.
+
+## Private accounts
+
+The local Python server uses Supabase Auth and owner-only database policies for profiles and account guides. Sign-up and sign-in use email and password. Supabase may require email confirmation before sign-in. The local server holds access and refresh tokens in memory, with an HttpOnly, SameSite cookie in the browser. Restarting the server requires signing in again. Production deployment will need HTTPS, secure cookies and a durable session strategy.
+
+1. Create a Supabase project with the Data API enabled. Enable automatic RLS and disable automatic exposure of new tables.
+2. Run `supabase/migrations/20261110_private_guides.sql` once in that project's SQL Editor. It creates private profiles, private guides and a revision-checked save function. In Authentication → URL Configuration, set Site URL to `http://127.0.0.1:8001/prototype/` for local confirmation emails.
+3. Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in your private `.env`, then restart `python server.py --port 8001`. Use the publishable key. Elevated secret and service-role keys are rejected.
+4. In Inner Table., open Sign in and create an account. Complete email confirmation if requested, then sign in and save your display name and username.
+5. Choose Copy device places to my account to upload this browser's guide. Exact duplicate Maps links keep existing account entries. The device guide remains available through My account. Account changes save automatically. Failed changes remain pending in the page and can be exported as a backup or retried. Conflicting edits require reloading the account guide after preserving pending changes.
+
+Use `node --test tests/accounts.test.cjs` and `python -m unittest discover -s tests -p test_accounts.py` for account regressions. Run `supabase/tests/private_guides.sql` in SQL Editor for a live ownership and revision check. Its fictional records roll back in the same transaction. Following, friend access and guide sharing are the next milestone. Current profiles and guides permit owner access only.

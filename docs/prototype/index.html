@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Inner Table. · Places from people you trust</title><link rel="stylesheet" href="style.css"><script defer src="matcher.js"></script><script defer src="imports.js"></script><script defer src="google.js"></script><script defer src="chat.js"></script><script defer src="app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Inner Table. · Places from people you trust</title><link rel="stylesheet" href="style.css"><script defer src="matcher.js"></script><script defer src="imports.js"></script><script defer src="google.js"></script><script defer src="chat.js"></script><script defer src="accounts.js"></script><script defer src="app.js"></script></head>
 <body>
-<header class="topbar"><a class="wordmark" href="./">Inner Table<span>.</span></a><nav aria-label="Main navigation"><button type="button" class="active" data-view="discover" aria-current="page">Discover</button><button type="button" data-view="places">My places <span id="saved-count"></span></button></nav><span class="local-label">Your local guide</span></header>
-<main>
+<header class="topbar"><a class="wordmark" href="./">Inner Table<span>.</span></a><nav aria-label="Main navigation"><button type="button" class="active" data-view="discover" aria-current="page">Discover</button><button type="button" data-view="places">My places <span id="saved-count"></span></button><button type="button" data-view="account"><span id="account-nav-label">Sign in</span></button></nav><span id="guide-mode-label" class="local-label">Your device guide</span></header>
+<main><p id="account-sync" class="account-sync" role="status" aria-live="polite"></p>
 <section id="discover-view">
 <div class="hero"><p class="eyebrow">THE PLACES WE SEND OUR FRIENDS</p><h1>Where should we go?</h1><p>Find a place for the occasion, through someone whose taste you trust.</p></div>
 <div id="plan-messages" class="plan-messages" role="log" aria-label="Your plan conversation" aria-live="polite" hidden></div><form id="search-form"><div class="filters">
@@ -15,8 +15,8 @@
 </section>
 <section id="places-view" hidden>
 <div class="page-heading"><p class="eyebrow">YOUR TASTE, ALL IN ONE PLACE</p><h1>My places</h1><p>From a messy saved pin to a recommendation worth sharing.</p></div>
-<p class="privacy-note">Only in this browser. Places are saved on this device. Sending a plan shares a compact guide summary with the AI provider. This is not an account or a private social network. Export a backup before clearing browser data.</p><p id="storage-status" role="status" aria-live="polite"></p>
-<div id="google-tools" class="guide-updates" hidden><div class="actions"><button type="button" class="secondary" id="google-batch">Update next 5 places</button></div><p id="google-status" class="small" role="status" aria-live="polite"></p></div><input id="google-reviews" type="checkbox" checked hidden><input id="google-auto-import" type="checkbox" checked hidden><div class="portal-grid">
+<p id="guide-storage-note" class="privacy-note">Your places are saved in this browser. Sign in and choose Copy to my account to use them across devices.</p><p id="storage-status" role="status" aria-live="polite"></p>
+<input id="google-reviews" type="checkbox" checked hidden><input id="google-auto-import" type="checkbox" checked hidden><div class="portal-grid">
 <section class="portal"><span class="portal-number">01</span><h2>Add a place</h2><p>A Maps link, a memory, a reason to go.</p><button type="button" class="primary" id="show-add">Add a place ↗</button></section>
 <section class="portal"><span class="portal-number">02</span><h2>Bring your saved lists</h2><p>Import a Google Takeout CSV. Your places are ready to explore, with statuses you can edit anytime.</p><label class="button secondary" for="csv-file">Choose CSV file ↗</label><input id="csv-file" class="visually-hidden" type="file" accept=".csv,text/csv"><details><summary>How to export your list</summary><p>Open <a href="https://takeout.google.com/" target="_blank" rel="noopener noreferrer">Google Takeout</a> and select Saved. Download and unzip the export, then choose a saved-list CSV here. We support title/name, URL, and note columns, including item_content_url. Other formats need review; ZIP uploads are not supported.</p></details></section>
 <section class="portal future"><span class="portal-number">03 · FUTURE CONNECTION</span><h2>Connect Google</h2><p>The goal: give permission once and bring over your saved places, with refreshes where supported.</p><button type="button" class="secondary" disabled>Not connected · coming later</button><details><summary>What’s planned?</summary><p>No Google authorization is implemented here. Google’s Data Portability API is a potential route, subject to app verification and account eligibility. Its current supported-country list excludes the US. Manual CSV import remains available.</p><a href="https://support.google.com/accounts/answer/14452558" target="_blank" rel="noopener noreferrer">Google’s availability and access rules ↗</a></details></section>
@@ -33,6 +33,29 @@
 <fieldset><legend>Good for… <span>(only choose what you know)</span></legend><div class="tag-options"><label><input type="checkbox" name="tag" value="conversation"> Talking / catch-ups</label><label><input type="checkbox" name="tag" value="fun"> A fun evening</label><label><input type="checkbox" name="tag" value="special"> Something special</label><label><input type="checkbox" name="tag" value="date"> A date</label><label><input type="checkbox" name="tag" value="group"> A group</label></div></fieldset>
 <p id="inferred-info" class="small"></p><label class="check-label"><input id="place-in-guide" type="checkbox" checked> Include in my guide and suggestions</label><label class="check-label"><input id="place-recommend" type="checkbox"> I personally recommend this place</label><p class="small">Imported places are included automatically. Edit visit status, endorsement, tags, or visibility anytime. Saved does not mean visited or personally endorsed. No category, visit, note, or neighborhood is required.</p><p id="editor-error" role="alert"></p><div class="actions"><button class="primary" type="submit">Save place</button><button class="secondary" id="cancel-edit" type="button">Cancel</button></div></form></section>
 <div class="list-heading"><h2>Your saved places</h2><div class="actions"><button class="secondary" id="show-all-in-guide" type="button">Show all in guide</button><button class="text-button" id="export-places" type="button">Export backup ↓</button><label class="text-button button" for="restore-file">Restore backup ↑</label><input class="visually-hidden" id="restore-file" type="file" accept=".json,application/json"></div></div><p id="queue-summary"></p><div id="my-places" class="saved-list"></div>
+</section>
+<section id="account-view" hidden>
+<div class="page-heading"><p class="eyebrow">YOUR TASTE, WITH YOU</p><h1>Your Inner Table.</h1><p>A private home for your places, ready wherever you sign in.</p></div>
+<p id="account-status" class="account-status" role="status" aria-live="polite"></p>
+<div id="account-auth" class="account-panel">
+<h2>Keep your guide close.</h2><p>Sign in to save a private account guide, or keep exploring with the places on this device.</p>
+<p id="account-setup" hidden>Account sign-in is being prepared. You can keep using your device guide.</p>
+<form id="account-auth-form">
+<label for="account-email">Email</label><input id="account-email" type="email" autocomplete="email" maxlength="254" required>
+<label for="account-password">Password</label><input id="account-password" type="password" autocomplete="current-password" minlength="8" maxlength="256" required>
+<div class="actions"><button class="primary" type="submit" value="sign-in">Sign in</button><button class="secondary" type="submit" value="sign-up">Create account</button></div>
+<p class="small">Creating an account may require email confirmation. Use a password of at least eight characters.</p>
+</form></div>
+<div id="account-member" hidden>
+<div class="account-panel"><h2>Your private profile</h2><p>Your profile and guide are visible to you. Friend access will come in a later update.</p>
+<form id="account-profile-form"><label for="profile-name">Display name</label><input id="profile-name" maxlength="80" autocomplete="nickname" required>
+<label for="profile-username">Username</label><input id="profile-username" minlength="3" maxlength="30" pattern="[a-z0-9_]{3,30}" required aria-describedby="username-help">
+<p id="username-help" class="small">3–30 lowercase letters, numbers or underscores.</p><button class="primary" type="submit">Save profile</button></form></div>
+<div class="account-panel"><h2>Your places, across devices</h2><p>Copy this browser’s saved places, personal notes and statuses to your private account. Existing account entries are kept when a Maps link appears in both guides.</p>
+<button id="account-copy" type="button" class="primary">Copy device places to my account</button>
+<div class="actions"><button id="account-use-cloud" class="secondary" type="button">Use my account guide</button><button id="account-use-device" class="secondary" type="button">Use this device’s guide</button></div>
+</div><div class="actions"><button id="account-sign-out" class="secondary" type="button">Sign out</button><button id="account-reload" class="secondary" type="button" hidden>Reload account guide</button></div>
+</div><button id="account-retry" class="secondary" type="button" hidden>Retry saving account changes</button>
 </section>
 <dialog id="google-match" aria-labelledby="google-match-title"><div class="list-heading"><h2 id="google-match-title">Find your place</h2><button id="google-match-close" type="button" class="secondary">Close</button></div><p class="small">Choose the address that matches your saved place.</p><div id="google-candidates"></div><p class="google-brand" translate="no">Google Maps</p></dialog></main><footer><span class="wordmark">Inner Table<span>.</span></span><span>A small guide, with someone behind every suggestion.</span><a href="../index.html">Building with AI · Pod 9 ↗</a></footer>
 </body></html>

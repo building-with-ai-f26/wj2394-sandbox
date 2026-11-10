@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from usage import UsageLog
 from planner import Planner, PlanError
+from accounts import Accounts, AccountError
 
 ROOT = Path(__file__).resolve().parent
 PLACE_ID = re.compile(r"[A-Za-z0-9_-]{5,255}\Z")
@@ -162,11 +163,13 @@ class Handler(SimpleHTTPRequestHandler):
         if host not in allowed or (origin and origin != "http://" + host) or self.headers.get("Sec-Fetch-Site") == "cross-site":
             raise PlacesError("Only requests from this local app are accepted.", 403)
 
-    def json_response(self, data, status=200):
+    def json_response(self, data, status=200, cookie=None):
         content = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         self.wfile.write(content)
 
@@ -180,7 +183,10 @@ class Handler(SimpleHTTPRequestHandler):
             return super().do_GET()
         try:
             self.local_request()
-            if route.path == "/api/status":
+            if route.path.startswith('/api/account/'):
+                result, cookie = self.server.accounts.handle('GET', route.path, {}, self.headers.get('Cookie'))
+                self.json_response(result, cookie=cookie)
+            elif route.path == "/api/status":
                 self.json_response({**self.server.places.status(), "aiConfigured": bool(getattr(self.server, "planner", None) and self.server.planner.key)})
             elif route.path == "/api/places/photo":
                 content, mime = self.server.places.photo(parse_qs(route.query).get("name", [""])[0])
@@ -191,7 +197,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(content)
             else:
                 raise PlacesError("Not found.", 404)
-        except PlacesError as error:
+        except (PlacesError, AccountError) as error:
             self.json_response({"error": str(error)}, error.status)
 
     def do_POST(self):
@@ -200,12 +206,17 @@ class Handler(SimpleHTTPRequestHandler):
             if self.headers.get_content_type() != "application/json":
                 raise PlacesError("Send JSON.", 415)
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= (1_000_000 if self.path in ("/api/plan", "/api/plan/shortlist") else 8192):
+            maximum = 20_000_000 if self.path in ('/api/account/guide', '/api/account/migrate') else 1_000_000 if self.path in ('/api/plan', '/api/plan/shortlist') else 8192
+            if not 0 < length <= maximum:
                 raise PlacesError("Request too large or empty.", 413)
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
                 raise PlacesError("Send a JSON object.")
-            if self.path in ("/api/plan", "/api/plan/shortlist"):
+            if self.path.startswith('/api/account/'):
+                result, cookie = self.server.accounts.handle('POST', self.path, data, self.headers.get('Cookie'))
+                self.json_response(result, cookie=cookie)
+                return
+            elif self.path in ("/api/plan", "/api/plan/shortlist"):
                 self.json_response(self.server.planner.recommend(data, shortlist=self.path.endswith("/shortlist")))
                 return
             elif self.path == "/api/places/search":
@@ -217,7 +228,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.json_response({"result": result, "usage": self.server.places.status()})
         except (ValueError, json.JSONDecodeError):
             self.json_response({"error": "Invalid JSON or request length."}, 400)
-        except (PlacesError, PlanError) as error:
+        except (PlacesError, PlanError, AccountError) as error:
             self.json_response({"error": str(error)}, error.status)
 
 
@@ -227,6 +238,7 @@ def main():
     args = parser.parse_args()
     load_env()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server.accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''))
     server.planner = Planner(os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"), UsageLog(ROOT / ".local" / "usage.jsonl"))
     server.places = GooglePlaces(os.getenv("GOOGLE_MAPS_API_KEY", ""),
                                  os.getenv("GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION", "40"),

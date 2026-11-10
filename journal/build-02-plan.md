@@ -8,6 +8,14 @@ Optional working notes. Publish your required build log on `docs/index.html`; no
 
 ## 1. What you made
 
+### Private-account milestone · November 10, 2026
+
+Created the builder's free Supabase organization and project, with automatic RLS enabled and automatic exposure of new tables disabled. Added owner-only profiles and guides, revision-checked guide saves, email/password sign-up and sign-in, server-memory sessions, private profile editing, and an explicit copy-device-guide action. Copies preserve existing account entries for duplicate Maps links. Device and account guides remain distinct, with automatic account saves, retry controls, export support and stale-edit conflict handling.
+
+Applied the SQL migration to the live project. Live SQL checks verified owner isolation and stale-revision rejection, using fictional users inside a rolled-back transaction. No real guide migration has been performed by the agent. Verified the live Auth connection, enabled email sign-in, anonymous data denial and the local session endpoint. Browser inspection confirmed the sign-in form and 76 device places. End-to-end sign-up, email confirmation and the builder's account copy await the builder's own credential entry.
+
+Checks passed 31 JavaScript tests and 23 Python tests. Captured `docs/assets/build-2-accounts.png` from an empty guide with blank credential fields. Kept the project connection settings in the ignored `.env`. Production HTTPS/session hosting and follower access remain future work. Supabase's selected plan is Free, while actual weekly service billing remains pending confirmation. The final clock review was 2:01 PM America/New_York. The start time for this multi-turn setup was not captured, so its reconciled duration remains pending and no continuous attention total is inferred.
+
 Removed the Discover neighborhood, budget and recommendation-source dropdowns at the builder's request. The plan conversation now receives location, budget and occasion directly from messages and searches the real saved guide. Removed dropdown-dependent event handlers and card filtering. Syntax checks and browser inspection verified the simplified composer and 76 stored places. No API test calls were required for this presentation change.
 - **PRs / Commits shipped:** 
 - **Product Page URL / local demo evidence:** 
@@ -40,6 +48,10 @@ Clock evidence spans 11:50 AM to 12:12 PM America/New_York. An approximately 18-
 - **Where you had to step in, edit by hand, or reset context:** 
 
 ## 4. What didn't work
+
+### Confirmation redirect fix · November 10, 2026
+
+The builder's email confirmation reached an unavailable localhost address. Supabase still had its default Site URL, `http://localhost:3000`. Changed it to the active local prototype URL and verified persistence after reloading the dashboard. Added a confirmation-return notice and removal of auth tokens from the URL fragment before displaying sign-in. Four targeted account UI tests passed, including the new callback regression. The final checkpoint passed all 55 local tests. The builder's real sign-in and migration remain pending. This work window was first clock-observed at 2:05 PM America/New_York.
 
 ### Japanese follow-up regression · November 10, 2026
 

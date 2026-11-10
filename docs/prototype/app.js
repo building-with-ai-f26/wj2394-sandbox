@@ -1,6 +1,7 @@
 const $ = selector => document.querySelector(selector);
 const I = InnerTableImport;
 const STORE = 'inner-table-places-v1';
+let account = null, guideMode = 'device';
 let places = [], pending = null, storageBroken = false;
 try {
   const raw = localStorage.getItem(STORE);
@@ -9,6 +10,7 @@ try {
   storageBroken = true;
   $('#storage-status').textContent = 'Saved data could not be read. Existing data will not be overwritten. You can explore this session and export a backup, but changes will not persist.';
 }
+let devicePlaces = places;
 const google=GooglePlaces.createController({
   getPlaces:()=>places,
   onUpdate:()=>{renderSaved();renderDiscover();},
@@ -21,14 +23,17 @@ function button(text, handler, className = 'secondary') {
   const node = element('button',className,text); node.type = 'button'; node.addEventListener('click',handler); return node;
 }
 function persist() {
+  if (guideMode === 'account') {account.save(places);return;}
+  devicePlaces = places;
+  if(account)account.refresh();
   if (storageBroken) return;
   try {localStorage.setItem(STORE,JSON.stringify({version:1,places})); $('#storage-status').textContent = '';}
   catch {$('#storage-status').textContent = 'Browser storage is unavailable or full. Changes are kept for this session only. Export a backup to keep them.';}
 }
 function showView(view) {
-  $('#discover-view').hidden = view !== 'discover'; $('#places-view').hidden = view !== 'places';
+  $('#discover-view').hidden = view !== 'discover'; $('#places-view').hidden = view !== 'places'; $('#account-view').hidden = view !== 'account';
   document.querySelectorAll('nav [data-view]').forEach(node => {node.classList.toggle('active',node.dataset.view === view); if(node.dataset.view === view) node.setAttribute('aria-current','page'); else node.removeAttribute('aria-current');});
-  if (view === 'discover') renderDiscover(); else renderSaved();
+  if (view === 'discover') renderDiscover(); else if(view === 'places') renderSaved();
   window.scrollTo({top:0,behavior:'smooth'});
 }
 document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click',() => showView(node.dataset.view)));
@@ -154,7 +159,7 @@ $('#confirm-import').addEventListener('click',()=>{
   const seen=new Set(places.map(p=>I.mapsURL(p.url)));
   const additions=pending.places.filter(p=>{const key=I.mapsURL(p.url);if(seen.has(key))return false;seen.add(key);return true;});
   if(places.length+additions.length>2000) {$('#import-status').textContent='This would exceed the 2,000-place prototype limit. Nothing was added.';return;}
-  places.push(...additions);const kind=pending.kind;cancelImport();changed();$('#import-status').textContent=`${additions.length} places ${kind==='backup'?'restored':'added to your guide — ready to explore'}. Edit statuses or hide places anytime. Nothing was uploaded or shared.`;
+  places.push(...additions);const kind=pending.kind;cancelImport();changed();$('#import-status').textContent=`${additions.length} places ${kind==='backup'?'restored':'added to your guide — ready to explore'}. Edit statuses or hide places anytime.`;
   if(kind==='csv')google.enrichImported(additions);
 });
 $('#show-all-in-guide').addEventListener('click',()=>{
@@ -178,3 +183,15 @@ $('#restore-file').addEventListener('change',async event=>{
 });
 renderSaved();renderDiscover();
 const googleReady = google.start();
+
+account = createAccounts({
+  getDevicePlaces: () => devicePlaces,
+  onMode: mode => {guideMode = mode;},
+  onGuide: (records, mode) => {
+    places.forEach(place => google.forget(place.id));
+    places = records;
+    guideMode = mode;
+    closeEditor();cancelImport();planChat.reset();renderSaved();renderDiscover();
+  }
+});
+account.start();
