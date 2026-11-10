@@ -9,6 +9,11 @@ try {
   storageBroken = true;
   $('#storage-status').textContent = 'Saved data could not be read. Existing data will not be overwritten. You can explore this session and export a backup, but changes will not persist.';
 }
+const google=GooglePlaces.createController({
+  getPlaces:()=>places,
+  onUpdate:()=>{renderSaved();renderDiscover();},
+  onLink:(place,id)=>{const current=places.find(p=>p.id===place.id);if(current){current.googlePlaceId=id;persist();}}
+});
 function element(tag, className = '', text = '') {
   const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
 }
@@ -27,47 +32,50 @@ function showView(view) {
   window.scrollTo({top:0,behavior:'smooth'});
 }
 document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click',() => showView(node.dataset.view)));
-function discoverPlaces() { return $('#guide').value === 'sample' ? InnerTableData : places.filter(I.ready); }
-function updateNeighborhoods() {
-  const select = $('#neighborhood'), current = select.value;
-  select.replaceChildren(new Option('Anywhere in NYC',''));
-  [...new Set(discoverPlaces().map(p => p.neighborhood).filter(Boolean))].sort().forEach(name => select.append(new Option(name,name)));
-  if ([...select.options].some(o => o.value === current)) select.value = current;
-}
+function discoverPlaces() { return places.filter(I.ready).map(google.merge); }
+let planResults = null;
+const planChat = createPlanChat({getPlaces: discoverPlaces, preparePlaces: async ids => {await googleReady;return google.prepareForPlan(ids);}, onResults: result => {planResults = result; renderDiscover();}});
 function renderDiscover() {
-  const sample = $('#guide').value === 'sample';
   const data = discoverPlaces();
-  const outcome = InnerTableMatcher.matchPlaces(data,$('#occasion').value,{neighborhood:$('#neighborhood').value,budget:$('#budget').value});
+  const outcome = InnerTableMatcher.matchPlaces(data,'');
+  if (planResults) {
+    outcome.matches = planResults.matches.map(match => ({place: data.find(place => String(place.id) === match.id), reasons: ['AI suggestion · ' + match.reason]})).filter(({place}) => place);
+    outcome.recognized = true;
+    outcome.unsupported = false;
+  }
   const results = $('#results'); results.replaceChildren();
-  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${sample ? 'Fictional sample guide — not real listings' : 'Your saved places and personal recommendations'}`;
+  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · Your saved places and personal recommendations`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
-    const noPersonal = !sample && !data.length;
+    const noPersonal = !data.length;
     empty.append(element('h2','',noPersonal ? 'Your next great recommendation starts here.' : 'No confident matches for this plan.'));
     empty.append(element('p','',noPersonal ? 'Import your saved list and it will be ready to explore. Edit any place’s status or details whenever you like; no review of every pin is required.' : outcome.unsupported ? 'We can’t verify dietary needs, accessibility, opening hours, or availability here. Check those requirements directly with the venue. Some negative preferences are also not understood by this demo.' : !outcome.recognized ? 'Try coffee, bars, shopping, dinner, a catch-up, a special occasion, a neighborhood, or “under $100”. This prototype only understands a small set of keywords.' : 'Nothing on this shortlist fits every constraint. Try a different neighborhood, a higher budget, or a broader occasion.'));
     if (noPersonal) {
       const actions = element('div','actions');
-      actions.append(button('Add your places',() => showView('places'),'primary'),button('Explore the sample guide',() => {$('#guide').value='sample';updateNeighborhoods();renderDiscover();}));
+      actions.append(button('Add your places',() => showView('places'),'primary'));
       empty.append(actions);
     }
+    if (planResults) empty.querySelector('p').textContent = planResults.reply;
     results.append(empty); return;
   }
   outcome.matches.forEach(({place,reasons}) => {
-    const card = element('article','card'); card.append(element('div','card-top',I.categoryLabel(place.category).toUpperCase()));
+    const card = element('article','card');
+    const photo=google.photo(place);
+    if(photo){const image=element('img','place-photo');image.src=photo;image.alt=place.name+' — Google Maps photo';card.append(image);}
+    card.append(element('div',photo?'card-category':'card-top',I.categoryLabel(place.category).toUpperCase()+(place.googleCategoryUsed?' · GOOGLE':'')));
     const body = element('div','card-body');
     body.append(element('h3','',place.name),element('p','place-meta',`${place.neighborhood || 'Neighborhood unknown'} · ${place.price === null ? 'Budget unknown' : `~$${place.price} per person`}`),element('p','note',place.note || 'No personal note added.'),element('p','reason',reasons.join('. ')+'.'));
-    const tags = element('div','tags');tags.append(element('span','tag',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.inferredTags || []).includes(tag) ? 'Suggested: ' : '') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
-    const bottom = element('div','card-bottom');bottom.append(element('span','',sample ? 'Fictional sample recommendation' : place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
-    if (!sample) {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
+    const tags = element('div','tags');tags.append(element('span','tag',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
+    const extra=google.extras(place);if(extra)body.append(extra);
+    const bottom = element('div','card-bottom');bottom.append(element('span','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
+    {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
     card.append(body,bottom);results.append(card);
   });
 }
-$('#search-form').addEventListener('submit',event => {event.preventDefault();renderDiscover();});
-for (const id of ['neighborhood','budget']) $('#'+id).addEventListener('change',renderDiscover);
-$('#guide').addEventListener('change',() => {updateNeighborhoods();renderDiscover();});
-document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;renderDiscover();}));
-$('#reset').addEventListener('click',() => {const guide=$('#guide').value;$('#search-form').reset();$('#guide').value=guide;updateNeighborhoods();renderDiscover();$('#occasion').focus();});
-function changed() {persist();updateNeighborhoods();renderSaved();renderDiscover();}
+$('#search-form').addEventListener('submit',event => {event.preventDefault();planChat.submit();});
+document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;planChat.submit();}));
+$('#reset').addEventListener('click',() => {planChat.reset();$('#search-form').reset();renderDiscover();$('#occasion').focus();});
+function changed() {persist();renderSaved();renderDiscover();}
 function renderSaved() {
   $('#saved-count').textContent = places.length ? `(${places.length})` : '';
   const readyCount = places.filter(I.ready).length;
@@ -78,14 +86,18 @@ function renderSaved() {
   if(!places.length) {const empty=element('div','empty');empty.append(element('h3','','Start with a place you’d tell a friend about.'),element('p','','Add a Maps link above, or bring over an unzipped saved-list CSV. You can sort out the messy pins here.'));list.append(empty);return;}
   places.forEach(place => {
     const row=element('article','saved-row'), content=element('div');
-    content.append(element('span',I.ready(place)?'badge ready':'badge',I.ready(place)?'In your guide':'Saved · review details'),element('h3','',place.name),element('p','',`${I.categoryLabel(place.category)} · ${place.neighborhood || 'Neighborhood unknown'} · ${I.visitLabel(place.status)}`));
+    const enriched=google.merge(place);
+    content.append(element('span',I.ready(place)?'badge ready':'badge',I.ready(place)?'In your guide':'Saved · review details'),element('h3','',place.name),element('p','',`${I.categoryLabel(enriched.category)}${enriched.googleCategoryUsed?' (Google)':''} · ${place.neighborhood || 'Neighborhood unknown'} · ${I.visitLabel(place.status)}`));
     if(place.note) content.append(element('p','',place.note));
     content.append(element('p','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
     const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';content.append(link);
     const actions=element('div','actions');actions.append(button('Edit status / details',()=>openEditor(place)),button(I.ready(place)?'Hide from guide':'Show in guide',()=>{place.inGuide=!I.ready(place);changed();}),button('Remove',()=>{
       if(!window.confirm(`Remove “${place.name}” from this browser?`)) return;
-      places=places.filter(p=>p.id!==place.id);if($('#place-id').value===place.id) closeEditor();changed();
-    },'text-button'));row.append(content,actions);list.append(row);
+      google.forget(place.id);places=places.filter(p=>p.id!==place.id);if($('#place-id').value===place.id) closeEditor();changed();
+    },'text-button'),google.action(place));
+    if(place.googlePlaceId)actions.append(button('Change Google match',()=>google.rematch(place),'text-button'));
+    const extra=google.extras(place);if(extra)content.append(extra);
+    row.append(content,actions);list.append(row);
   });
 }
 function closeEditor() {$('#place-editor').hidden=true;$('#place-form').reset();$('#place-id').value='';$('#editor-error').textContent='';}
@@ -113,6 +125,8 @@ $('#place-form').addEventListener('submit',event=>{
   place.inferredTags=(previous?.inferredTags || []).filter(tag=>place.tags.includes(tag));
   place.listName=previous?.listName || '';
   place.source=previous?.source || place.source;
+  if(previous?.googlePlaceId && previous.url===url)place.googlePlaceId=previous.googlePlaceId;
+  if(previous && previous.url!==url)google.forget(id);
   if(!place.name) {error.textContent='Add a place name.';return;}
   if(!places.some(p=>p.id===id) && places.length>=2000) {error.textContent='This prototype supports up to 2,000 saved places. Export a backup before making room.';return;}
   const index=places.findIndex(p=>p.id===id);if(index<0) places.push(place);else places[index]=place;
@@ -141,6 +155,7 @@ $('#confirm-import').addEventListener('click',()=>{
   const additions=pending.places.filter(p=>{const key=I.mapsURL(p.url);if(seen.has(key))return false;seen.add(key);return true;});
   if(places.length+additions.length>2000) {$('#import-status').textContent='This would exceed the 2,000-place prototype limit. Nothing was added.';return;}
   places.push(...additions);const kind=pending.kind;cancelImport();changed();$('#import-status').textContent=`${additions.length} places ${kind==='backup'?'restored':'added to your guide — ready to explore'}. Edit statuses or hide places anytime. Nothing was uploaded or shared.`;
+  if(kind==='csv')google.enrichImported(additions);
 });
 $('#show-all-in-guide').addEventListener('click',()=>{
   places.forEach(place=>{place.inGuide=true;});
@@ -161,4 +176,5 @@ $('#restore-file').addEventListener('change',async event=>{
     showPreview({places:fresh,duplicates,skipped:0},'backup');
   } catch {$('#import-status').textContent='Could not restore this backup. Use an Inner Table. JSON backup under 20 MB. No saved places were changed.';}
 });
-updateNeighborhoods();renderSaved();renderDiscover();
+renderSaved();renderDiscover();
+const googleReady = google.start();

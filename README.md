@@ -40,19 +40,19 @@ Build 1 is a dependency-free HTML/CSS/JavaScript prototype. Add Google Maps link
 
 Import uses note, list-name, and export-tag keywords to suggest occasion tags. These are labeled as inferred and can be edited; they are not verified suitability claims. List names come from an export column or CSV filename. Cards distinguish saved-list suggestions from personal endorsements and show Been there / Want to try / Not specified. Missing categories, prices, neighborhoods, and visits are not inferred. A place with no price will not match a budget filter, and an uncategorized place will not match an explicit category request such as dinner or coffee. General browsing includes all visible places. NYC remains the initial geographic scope; importing does not verify a place's city. Multi-city discovery is planned later.
 
-Your places are kept in this browser's local storage, not uploaded or written into the repository. Use **Export backup** and **Restore backup** to keep a copy. Use the same browser and origin (`127.0.0.1:8000`) to return to your data. Private browsing or clearing site data can remove it. Storage errors are shown in My places.
+Your places are kept in this browser's local storage. Submitting a plan sends a guide summary to the configured AI provider as described below. Use **Export backup** and **Restore backup** to keep a copy. Use the same browser and origin (`127.0.0.1:8001`) to return to your data. Private browsing or clearing site data can remove it. Storage errors are shown in My places.
 
-Discover keeps your reviewed places separate from the optional 12-entry fictional sample guide. This version does not call an AI model, provide accounts or private sharing, or connect to Google. **Connect Google** is a clearly labeled future entry point, not an authorization button.
+Discover searches your visible saved places. Fictional fixtures remain available for deterministic checks. The local server supports optional Google place enrichment and an AI plan conversation. Accounts and private sharing remain future work. **Connect Google** is a clearly labeled future entry point, not an authorization button.
 
 From the repository root, run:
 
 ```powershell
-python -m http.server 8000 --bind 127.0.0.1
+python server.py --port 8001
 ```
 
-Open `http://127.0.0.1:8000/docs/prototype/` for the app, or `http://127.0.0.1:8000/docs/` for the class product page. Stop the server with Ctrl+C. Do not use the repository-root server as a public deployment: it is for local development only.
+Open `http://127.0.0.1:8001/prototype/` for the app, or `http://127.0.0.1:8001/` for the class product page. Stop the server with Ctrl+C. Do not use the repository-root server as a public deployment: it is for local development only.
 
-GitHub Pages publishes `main:/docs`, so the prototype source lives in `docs/prototype/`. Use the Pages URLs above to run the public pages; GitHub's repository file viewer displays source. The old local `/prototype/` path has moved to `/docs/prototype/`. Browser-stored places remain on their original origin: imports made at localhost are not transferred to GitHub Pages; use backup export/restore to move them.
+GitHub Pages publishes `main:/docs`, so the prototype source lives in `docs/prototype/`. Use the Pages URLs above to run the public pages; GitHub's repository file viewer displays source. The local server serves `docs/` at its root, so the app path is `/prototype/`. Browser-stored places remain on their original origin: imports made at localhost are not transferred to GitHub Pages; use backup export/restore to move them.
 
 Before noon each Monday (America/New_York), update the class page's **Unit Economics & Analytics Snapshot** and the active weekly build's **Cost & time this week**. Confirm real costs and hours with the builder, date the review, and mark missing values pending. This requirement is recorded in AGENTS.md; it is not an automated schedule.
 
@@ -62,7 +62,7 @@ Run the matching checks with Node.js (built-in test runner; no install):
 node --test tests/matcher.test.cjs tests/imports.test.cjs
 ```
 
-No API key is needed. The importer supports English headers `Title`/`Name`/`place_name`, `URL`/`item_content_url`/`google_maps_url`/`maps_url`, and `Note`/`Notes`; handles quoted commas, newlines, and optional collection descriptions; and skips non-Maps URLs and duplicate links. Upload an individual CSV (not the ZIP), up to 2 MB and 2,000 rows. Different short and full URLs for the same place may still need manual deduplication. Actual export variations need checking against your first real file.
+Basic browsing and import need no API key. The importer supports English headers `Title`/`Name`/`place_name`, `URL`/`item_content_url`/`google_maps_url`/`maps_url`, and `Note`/`Notes`; handles quoted commas, newlines, and optional collection descriptions; and skips non-Maps URLs and duplicate links. Upload an individual CSV (not the ZIP), up to 2 MB and 2,000 rows. Different short and full URLs for the same place may still need manual deduplication. Actual export variations need checking against your first real file.
 
 Long-term: investigate Google's [Data Portability API](https://developers.google.com/data-portability/schema-reference/save) for consent-based importing and refreshed copies. This requires app verification and eligibility; Google's [current supported-country list](https://support.google.com/accounts/answer/14452558) excludes the US. Do not promise universal access, complete coverage of every Maps list, or continuous sync. CSV import remains the fallback.
 
@@ -74,3 +74,11 @@ cd <your-repo-name>
 ```
 
 If your app needs API keys, use a local environment file such as `.env`. Keep private keys out of source code, browser code, screenshots, and commits. The template ignores `.env`; `.env.example` contains placeholders only.
+
+## Local AI conversation
+
+Set `OPENROUTER_API_KEY` in your private `.env` and restart `python server.py --port 8001`. Never paste the key into chat or commit it. `OPENROUTER_MODEL` defaults to `openai/gpt-4o-mini` and can be changed locally. Google enrichment uses `GOOGLE_MAPS_API_KEY`, with reviews controlled by `GOOGLE_PLACES_REVIEWS_ENABLED`.
+
+Describe an occasion in The plan and send follow-ups to revise it. Conversation history stays in memory until reset or reload. Each send shares the active guide's names, notes, recorded details, tags and review-derived hints with OpenRouter and its model provider. Each plan retrieves likely saved candidates, fetches their available Google details, and ranks them using descriptions, price ranges and a limited review sample. Photos are excluded from AI requests. AI reasons can be inaccurate and require evaluation. A missing key shows a setup message. Static GitHub Pages cannot run these server features.
+
+Run `python usage.py` for private project-report request counts, provider-reported AI tokens and costs. The ledger under `.local/` is Git-ignored and excludes conversation and place contents. Missing billing values stay pending. Run `python -m unittest discover -s tests -p 'test_*.py'` for Python checks and `node --test tests/matcher.test.cjs tests/imports.test.cjs tests/google.test.cjs` for JavaScript checks.

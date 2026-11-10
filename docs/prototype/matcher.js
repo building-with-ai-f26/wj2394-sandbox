@@ -32,7 +32,7 @@
       (!filters.neighborhood || place.neighborhood === filters.neighborhood) &&
       (!mentioned.length || mentioned.includes(place.neighborhood))
     ).map(place => ({place,reasons:[
-      ...tags.map(tag => ((place.inferredTags || []).includes(tag) ? 'Suggested from saved note or list keywords: ' : 'Recorded tag: ') + ({conversation:'good for talking',fun:'a lively outing',special:'a special occasion',date:'a date',group:'a group'})[tag]),
+      ...tags.map(tag => ((place.googleReviewTags || []).includes(tag) ? 'Suggested from a limited Google review sample: ' : (place.inferredTags || []).includes(tag) ? 'Suggested from saved note or list keywords: ' : 'Recorded tag: ') + ({conversation:'good for talking',fun:'a lively outing',special:'a special occasion',date:'a date',group:'a group'})[tag]),
       ...(budget !== null ? [`Recorded all-in estimate $${place.price} per person is under $${budget}`] : []),
       ...((filters.neighborhood || mentioned.length) ? [`In ${place.neighborhood}`] : []),
       ...(!tags.length && budget === null && !filters.neighborhood && !mentioned.length ? [place.recommended ? 'Personally recommended in this guide' : 'Saved in this guide; not personally endorsed'] : [])

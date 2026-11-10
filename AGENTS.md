@@ -5,12 +5,13 @@
 ## 1. Project Overview
 - **What this repo builds:** Inner Table. is an occasion-based place guide built around recommendations from people you trust, starting in NYC. Build 1 supports personal Maps links, local Takeout CSV imports with review, recommendations across all categories (including uncategorized pins), and a separate fictional sample guide. Other cities are a future direction.
 - **Primary user & core workflow:** [See the living PRD in `docs/index.html`]
-- **Tech stack:** Plain HTML/CSS/JavaScript; Python static server for local development; Node.js built-in test runner. No dependencies or external APIs.
+- **Tech stack:** Plain HTML/CSS/JavaScript; Python standard-library local server; Node.js built-in test runner. No third-party dependencies. Optional Google Places and OpenRouter APIs.
 
 ## 2. Commands
 - **Install dependencies:** None. Python and Node.js must be available.
-- **Run locally:** `python -m http.server 8000 --bind 127.0.0.1`, then open `http://127.0.0.1:8000/docs/prototype/`. Local development only; do not expose the repository-root server publicly.
+- **Run locally:** `python server.py --port 8001`, then open `http://127.0.0.1:8001/prototype/`. Local development only; do not expose the repository-root server publicly.
 - **Run deterministic tests:** `node --test tests/matcher.test.cjs tests/imports.test.cjs`
+- **Python checks:** `python -m unittest discover -s tests -p "test_*.py"`. Private report usage summary through `python usage.py`.
 - **Run model evals:** Not applicable for Build 1; matching is rule-based. Build 4 track not selected yet.
 
 ## 3. Non-Negotiable Engineering Rules
