@@ -1,4 +1,4 @@
-// Local-only import utilities. No requests to Google or any other service.
+// Import parsing utilities. Network requests are handled by the app and local server.
 (function (root) {
   const TAGS = ['conversation','fun','special','date','group'];
   function mapsURL(value) {
@@ -97,7 +97,7 @@
     return data.places.map(p => {
       if (p && ((p.inGuide !== undefined && typeof p.inGuide !== 'boolean') || (p.listName !== undefined && (typeof p.listName !== 'string' || p.listName.length > 200)) || (p.inferredTags !== undefined && (!Array.isArray(p.inferredTags) || !p.inferredTags.every(tag => TAGS.includes(tag)))))) throw new Error('Invalid guide metadata. Nothing was restored.');
       if (!p || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 200 || typeof p.url !== 'string' || p.url.length > 2000 || !mapsURL(p.url) || typeof p.note !== 'string' || p.note.length > 3000 || typeof p.neighborhood !== 'string' || p.neighborhood.length > 100 || !['unknown','restaurant','cafe','bar','shop','nightclub','other'].includes(p.category) || !['been there','want to try','not specified'].includes(p.status) || typeof p.recommended !== 'boolean' || !(p.price === null || (Number.isFinite(p.price) && p.price > 0 && p.price <= 10000)) || !Array.isArray(p.tags) || !p.tags.every(tag => TAGS.includes(tag))) throw new Error('A backup place contains invalid fields. Nothing was restored.');
-      return {id:crypto.randomUUID(),name:p.name.trim(),url:mapsURL(p.url),note:p.note,neighborhood:p.neighborhood.trim(),category:p.category,status:p.status,recommended:p.recommended,inGuide:typeof p.inGuide === 'boolean' ? p.inGuide : p.recommended,price:p.price,tags:[...new Set(p.tags)],inferredTags:(p.inferredTags || []).filter(tag=>p.tags.includes(tag)),listName:p.listName || '',source:p.source === 'Google Takeout CSV' ? p.source : 'Restored personal backup',...(typeof p.googlePlaceId === 'string' && /^[A-Za-z0-9_-]{5,255}$/.test(p.googlePlaceId) ? {googlePlaceId:p.googlePlaceId} : {})};
+      return {id:crypto.randomUUID(),name:p.name.trim(),url:mapsURL(p.url),note:p.note,neighborhood:p.neighborhood.trim(),category:p.category,status:p.status,recommended:p.recommended,inGuide:typeof p.inGuide === 'boolean' ? p.inGuide : p.recommended,price:p.price,tags:[...new Set(p.tags)],inferredTags:(p.inferredTags || []).filter(tag=>p.tags.includes(tag)),listName:p.listName || '',source:['Google Takeout CSV','Google Maps shared list'].includes(p.source) ? p.source : 'Restored personal backup',...(typeof p.googlePlaceId === 'string' && /^[A-Za-z0-9_-]{5,255}$/.test(p.googlePlaceId) ? {googlePlaceId:p.googlePlaceId} : {})};
     });
   }
   root.InnerTableImport = {mapsURL,parseCSV,importCSV,ready,visitLabel,categoryLabel,suggestedTags,validateBackup};

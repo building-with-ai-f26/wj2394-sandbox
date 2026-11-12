@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 from usage import UsageLog
 from planner import Planner, PlanError
 from accounts import Accounts, AccountError
+from shared_lists import fetch_shared_list, SharedListError
 
 ROOT = Path(__file__).resolve().parent
 PLACE_ID = re.compile(r"[A-Za-z0-9_-]{5,255}\Z")
@@ -230,6 +231,12 @@ class Handler(SimpleHTTPRequestHandler):
             if self.path == '/api/account/google/start':
                 result, cookie = self.server.accounts.start_google('http://' + self.headers['Host'])
                 self.json_response(result, cookie=cookie)
+                return
+            if self.path == '/api/import/maps-list':
+                try:
+                    self.json_response(fetch_shared_list(data.get('url')))
+                except SharedListError as error:
+                    self.json_response({'error': str(error)}, 400)
                 return
             if self.path in ('/api/account/plan', '/api/account/plan/shortlist'):
                 verified = self.server.accounts.prepare_friend_plan(data, self.headers.get('Cookie'))

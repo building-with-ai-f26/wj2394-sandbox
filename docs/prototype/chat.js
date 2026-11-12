@@ -70,7 +70,6 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       status.textContent = 'Checking Google Maps details for your plan…';
       const coverage = await preparePlaces(candidates.matches.map(match => match.id));
       if(context !== revision)return;
-      if(coverage.requested && !coverage.checked) throw new Error(coverage.error || 'Google details could not be matched for these places. Try matching them in My places.');
       const details = guideSummary();
       const selected = details.filter(place => candidates.matches.some(match => match.id === place.id));
       status.textContent = 'Finding the best fit from the available details…';
@@ -79,7 +78,7 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       messages.push(turn, {role: 'assistant', content: result.reply});
       append('assistant', result.reply);
       onResults(result);
-      status.textContent = `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. ` + (coverage.error ? 'Some details could not load. ' : '') + 'Keep chatting to refine the shortlist.';
+      status.textContent = `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. ` + (coverage.error ? 'Google details are unavailable for some places. Suggestions use the saved notes and details currently available. ' : '') + 'Keep chatting to refine the shortlist.';
     } catch (error) {
       if (context !== revision) return;
       status.textContent = error instanceof SyntaxError ? 'The conversation needs the local Inner Table server.' : error.message;

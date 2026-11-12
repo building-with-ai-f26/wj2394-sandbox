@@ -3,6 +3,8 @@ const I = InnerTableImport;
 const STORE = 'inner-table-places-v1';
 let account = null, friends = null, friendGuide = null, guideMode = 'device';
 let places = [], pending = null, storageBroken = false;
+const selectedPlaces = new Set();
+
 try {
   const raw = localStorage.getItem(STORE);
   if (raw) places = I.validateBackup(raw);
@@ -41,6 +43,17 @@ function discoverPlaces() { return (friendGuide ? friendGuide.places : places).f
 let planResults = null;
 const planChat = createPlanChat({getOwner:()=>friends?.getOwner(), onAccessDenied:()=>friends.leave('This friend’s guide is no longer available. You are back in your own guide.'), getPlaces: discoverPlaces, preparePlaces: async ids => {await googleReady;return google.prepareForPlan(ids);}, onResults: result => {planResults = result; renderDiscover();}});
 function renderDiscover() {
+  const results = $('#results');
+  results.replaceChildren();
+  const hasReply = planResults !== null;
+  results.hidden = !hasReply;
+  $('#result-summary').closest('.list-heading').hidden = !hasReply;
+  $('#discover-view .hero').hidden = true;
+  $('#discover-view .method').hidden = !hasReply;
+  if(!hasReply) {
+    $('#result-summary').textContent = '';
+    return;
+  }
   const data = discoverPlaces();
   const outcome = InnerTableMatcher.matchPlaces(data,'');
   if (planResults) {
@@ -48,7 +61,6 @@ function renderDiscover() {
     outcome.recognized = true;
     outcome.unsupported = false;
   }
-  const results = $('#results'); results.replaceChildren();
   $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
@@ -98,17 +110,69 @@ $('#search-form').addEventListener('submit',event => {event.preventDefault();pla
 document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;planChat.submit();}));
 $('#reset').addEventListener('click',() => {planChat.reset();HTMLFormElement.prototype.reset.call($('#search-form'));renderDiscover();$('#occasion').focus();});
 function changed() {persist();renderSaved();renderDiscover();}
+function updateSelection() {
+  $('#selection-count').textContent = `${selectedPlaces.size} selected`;
+  $('#select-all-places').disabled = !places.length || selectedPlaces.size === places.length;
+  $('#clear-place-selection').disabled = !selectedPlaces.size;
+  $('#show-selected-places').disabled = !selectedPlaces.size;
+  $('#hide-selected-places').disabled = !selectedPlaces.size;
+  $('#remove-selected-places').disabled = !selectedPlaces.size;
+  document.querySelectorAll('.place-selection input').forEach(input => {
+    input.checked = selectedPlaces.has(input.value);
+  });
+}
+$('#select-all-places').addEventListener('click', () => {
+  places.forEach(place => selectedPlaces.add(String(place.id)));
+  updateSelection();
+});
+$('#clear-place-selection').addEventListener('click', () => {
+  selectedPlaces.clear();
+  updateSelection();
+});
+function setSelectedVisibility(visible) {
+  places.forEach(place => {
+    if(selectedPlaces.has(String(place.id))) place.inGuide = visible;
+  });
+  changed();
+}
+$('#show-selected-places').addEventListener('click', () => setSelectedVisibility(true));
+$('#hide-selected-places').addEventListener('click', () => setSelectedVisibility(false));
+$('#remove-selected-places').addEventListener('click', () => {
+  const selected = places.filter(place => selectedPlaces.has(String(place.id)));
+  if(!selected.length || !window.confirm(`Remove ${selected.length} selected places from this ${guideMode === 'account' ? 'account' : 'device'} guide?`)) return;
+  selected.forEach(place => google.forget(place.id));
+  if(selectedPlaces.has($('#place-id').value)) closeEditor();
+  places = places.filter(place => !selectedPlaces.has(String(place.id)));
+  selectedPlaces.clear();
+  changed();
+});
 function renderSaved() {
+  const currentIds = new Set(places.map(place => String(place.id)));
+  selectedPlaces.forEach(id => {if(!currentIds.has(id)) selectedPlaces.delete(id);});
   $('#saved-count').textContent = places.length ? `(${places.length})` : '';
   const readyCount = places.filter(I.ready).length;
   $('#queue-summary').textContent = `${places.length} saved · ${readyCount} in your guide · ${places.filter(p=>p.recommended).length} personally recommended · ${places.length-readyCount} hidden from suggestions`;
   $('#export-places').disabled = !places.length;
   $('#show-all-in-guide').disabled = readyCount === places.length;
   const list=$('#my-places');list.replaceChildren();
+  updateSelection();
   if(!places.length) {const empty=element('div','empty');empty.append(element('h3','','Start with a place you’d tell a friend about.'),element('p','','Add a Maps link above, or bring over an unzipped saved-list CSV. You can sort out the messy pins here.'));list.append(empty);return;}
   places.forEach(place => {
     const row=element('article','saved-row'), content=element('div');
     const enriched=google.merge(place);
+    const selection = element('label','place-selection');
+    const checkbox = element('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = String(place.id);
+    checkbox.checked = selectedPlaces.has(String(place.id));
+    checkbox.setAttribute('aria-label', `Select ${place.name}`);
+    checkbox.addEventListener('change', () => {
+      if(checkbox.checked) selectedPlaces.add(String(place.id));
+      else selectedPlaces.delete(String(place.id));
+      updateSelection();
+    });
+    selection.append(checkbox,element('span','','Select'));
+    content.append(selection);
     content.append(element('span',I.ready(place)?'badge ready':'badge',I.ready(place)?'In your guide':'Saved · review details'),element('h3','',place.name),element('p','',`${I.categoryLabel(enriched.category)}${enriched.googleCategoryUsed?' (Google)':''} · ${place.neighborhood || 'Neighborhood unknown'} · ${I.visitLabel(place.status)}`));
     if(place.note) content.append(element('p','',place.note));
     content.append(element('p','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
@@ -171,6 +235,38 @@ $('#csv-file').addEventListener('change',async event=>{
   try {if(file.size>2_000_000) throw new Error('Choose a CSV smaller than 2 MB.');showPreview(I.importCSV(await file.text(),places,file.name),'csv');}
   catch(error) {$('#import-status').textContent=error.message;}
 });
+$('#maps-list-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const targetGuide = places;
+  const status = $('#maps-list-status');
+  $('#maps-list-import').disabled = true;
+  status.textContent = 'Reading your shared list…';
+  try {
+    const response = await fetch('/api/import/maps-list', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: $('#maps-list-url').value.trim()})
+    });
+    const data = await response.json();
+    if(!response.ok) throw new Error(data.error || 'The list could not be imported. Try again.');
+    if(places !== targetGuide) throw new Error('Your active guide changed. Import the link again into the guide you want.');
+    const quote = value => '"' + value.replaceAll('"', '""') + '"';
+    const csv = [['name','url','note','list'], ...data.places.map(place => [place.name,place.url,place.note,data.listName])].map(row => row.map(quote).join(',')).join('\n');
+    const result = I.importCSV(csv, places);
+    if(!result.places.length) {
+      status.textContent = `No new places to add · ${result.duplicates} matching links already saved.`;
+      return;
+    }
+    result.places.forEach(place => {place.source = 'Google Maps shared list';});
+    showPreview(result, 'shared-list');
+    $('#confirm-import').click();
+    if(pending) throw new Error($('#import-status').textContent || 'The import needs attention below.');
+    status.textContent = `${result.places.length} places imported · ${result.duplicates} matching links already saved. Paste this link again to import new additions.`;
+  } catch(error) {
+    status.textContent = error instanceof SyntaxError ? 'Start the local Inner Table. server to import a list, then try again.' : error.message;
+  } finally {
+    $('#maps-list-import').disabled = false;
+  }
+});
 $('#confirm-import').addEventListener('click',()=>{
   if(!pending) return;
   // Recheck duplicates in case a place was added while the preview was open.
@@ -178,7 +274,7 @@ $('#confirm-import').addEventListener('click',()=>{
   const additions=pending.places.filter(p=>{const key=I.mapsURL(p.url);if(seen.has(key))return false;seen.add(key);return true;});
   if(places.length+additions.length>2000) {$('#import-status').textContent='This would exceed the 2,000-place prototype limit. Nothing was added.';return;}
   places.push(...additions);const kind=pending.kind;cancelImport();changed();$('#import-status').textContent=`${additions.length} places ${kind==='backup'?'restored':'added to your guide — ready to explore'}. Edit statuses or hide places anytime.`;
-  if(kind==='csv')google.enrichImported(additions);
+  if(kind==='csv' || kind==='shared-list')google.enrichImported(additions);
 });
 $('#show-all-in-guide').addEventListener('click',()=>{
   places.forEach(place=>{place.inGuide=true;});
@@ -220,6 +316,7 @@ account = createAccounts({
   getDevicePlaces: () => devicePlaces,
   onMode: mode => {guideMode = mode;},
   onGuide: (records, mode) => {
+    selectedPlaces.clear();
     places.forEach(place => google.forget(place.id));
     places = records;
     guideMode = mode;

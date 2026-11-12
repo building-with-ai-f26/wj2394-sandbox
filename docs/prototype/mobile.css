@@ -853,6 +853,29 @@ footer .wordmark {
 
 }
 
+.place-selection-toolbar {
+  padding: 16px 0;
+  margin-bottom: 12px;
+  border-block: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+}
+.place-selection-toolbar p { margin: 0; }
+#selection-count { font-size: 13px; color: var(--muted); }
+.place-selection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  width: fit-content;
+  margin: 0 0 8px;
+  cursor: pointer;
+}
+.place-selection input { width: 20px; height: 20px; }
+.google-connection details { width: 100%; }
+.google-connection select { margin-bottom: 12px; }
+#google-connection-setup h3 { font-size: 21px; margin-top: 20px; }
+
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after {
   scroll-behavior:auto!important
