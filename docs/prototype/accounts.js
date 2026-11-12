@@ -1,5 +1,5 @@
 /* Account tokens live on the local server. Device imports move only on explicit copy. */
-function createAccounts({getDevicePlaces, onGuide, onMode}) {
+function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}}) {
   const $ = selector => document.querySelector(selector);
   let signedIn = false;
   let mode = 'device';
@@ -22,7 +22,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
   function render() {
     $('#account-auth').hidden = signedIn;
     $('#account-member').hidden = !signedIn;
-    $('#account-nav-label').textContent = signedIn ? 'My account' : 'Sign in';
+    $('#account-nav-label').textContent = 'Profile';
     $('#account-copy').textContent = `Copy ${getDevicePlaces().length} device places to my account`;
     $('#account-copy').disabled = busy || !getDevicePlaces().length;
     $('#account-google').disabled = busy;
@@ -33,6 +33,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
     $('#account-retry').hidden = !pending;
     $('#account-reload').hidden = mode !== 'account';
     onMode(mode);
+    onSession(signedIn);
   }
   async function sync() {
     if(saving)return saving;
@@ -192,5 +193,5 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
   window.addEventListener('beforeunload', event => {
     if(pending) {event.preventDefault();event.returnValue = '';}
   });
-  return {start,save,refresh:render};
+  return {start,save,flush,refresh:render};
 }

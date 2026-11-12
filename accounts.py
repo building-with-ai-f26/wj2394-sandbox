@@ -175,6 +175,13 @@ class Accounts:
                 error.close()
             if detail.get('message') == 'guide_conflict':
                 raise AccountError('Your account guide changed elsewhere. Export your pending changes before reloading it.', 409) from None
+            messages = {'guide_access_denied': ('This guide needs the owner’s approval, or access has been removed.', 403),
+                        'friend_not_found': ('No profile found with that username.', 404),
+                        'cannot_follow_self': ('That is your own profile.', 400),
+                        'profile_required': ('Save your display name and username before requesting access.', 400)}
+            if detail.get('message') in messages:
+                message, status = messages[detail['message']]
+                raise AccountError(message, status) from None
             if detail.get('code') == '23505':
                 raise AccountError('That username is already taken.') from None
             if status == 429:
@@ -231,6 +238,36 @@ class Accounts:
         rows = self.request('/rest/v1/profiles?select=id,display_name,username&id=eq.' + session['user']['id'], token=self.token(session))
         return rows[0] if rows else {'id': session['user']['id'], 'display_name': '', 'username': ''}
 
+    def followed_guide(self, owner_id, cookie):
+        _, session = self.get_session(cookie)
+        if not session:
+            raise AccountError('Sign in to read a friend’s guide.', 401)
+        try:
+            owner_id = str(UUID(owner_id))
+        except (ValueError, TypeError, AttributeError):
+            raise AccountError('Invalid guide owner.') from None
+        with session['lock']:
+            return self.request('/rest/v1/rpc/get_followed_guide', {'p_owner':owner_id}, token=self.token(session))
+
+    def prepare_friend_plan(self, body, cookie):
+        # Recheck approval on every AI request. Client-submitted personal fields are not authoritative.
+        guide = self.followed_guide(body.get('ownerId'), cookie)
+        supplied = body.get('places')
+        if not isinstance(supplied, list):
+            raise AccountError('Invalid guide summary.')
+        available = {place['url']:place for place in guide['places']}
+        places = []
+        google_fields = ('googleAddress', 'googleCategory', 'googleDescription', 'googlePriceRange', 'googleReviews', 'googleReviewTags')
+        for candidate in supplied:
+            if not isinstance(candidate, dict) or not isinstance(candidate.get('id'), str) or not isinstance(candidate.get('url'), str):
+                raise AccountError('Invalid guide summary.')
+            recorded = available.get(candidate.get('url'))
+            if recorded:
+                place = {**recorded, 'id':candidate['id']}
+                place.update({field:candidate[field] for field in google_fields if field in candidate})
+                places.append(place)
+        return {**body, 'places':places}
+
     def handle(self, method, path, body, cookie):
         session_id, session = self.get_session(cookie)
         if method == 'GET' and path == '/api/account/session':
@@ -263,6 +300,24 @@ class Accounts:
         if not session:
             raise AccountError('Please sign in to use your account guide.', 401)
         with session['lock']:
+            if method == 'POST' and path == '/api/account/connections':
+                return self.request('/rest/v1/rpc/guide_connections', {}, token=self.token(session)), None
+            if method == 'POST' and path == '/api/account/follow':
+                username = body.get('username')
+                if not isinstance(username, str) or not re.fullmatch(r'[a-z0-9_]{3,30}', username):
+                    raise AccountError('Enter your friend’s exact username.')
+                return self.request('/rest/v1/rpc/request_guide_follow', {'p_username':username}, token=self.token(session)), None
+            if method == 'POST' and path in ('/api/account/approve', '/api/account/revoke', '/api/account/unfollow'):
+                try:
+                    other_id = str(UUID(body.get('id')))
+                except (ValueError, TypeError, AttributeError):
+                    raise AccountError('Invalid connection.') from None
+                owner_id = other_id if path.endswith('/unfollow') else session['user']['id']
+                follower_id = session['user']['id'] if path.endswith('/unfollow') else other_id
+                route = '/rest/v1/guide_follows?owner_id=eq.' + owner_id + '&follower_id=eq.' + follower_id
+                approved = path.endswith('/approve')
+                self.request(route, {'approved':True} if approved else None, token=self.token(session), method='PATCH' if approved else 'DELETE')
+                return {'ok':True}, None
             if method == 'GET' and path == '/api/account/guide':
                 return self.guide(session), None
             if method == 'POST' and path == '/api/account/profile':

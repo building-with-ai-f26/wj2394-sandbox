@@ -221,7 +221,7 @@ class Handler(SimpleHTTPRequestHandler):
             if self.headers.get_content_type() != "application/json":
                 raise PlacesError("Send JSON.", 415)
             length = int(self.headers.get("Content-Length", "0"))
-            maximum = 20_000_000 if self.path in ('/api/account/guide', '/api/account/migrate') else 1_000_000 if self.path in ('/api/plan', '/api/plan/shortlist') else 8192
+            maximum = 20_000_000 if self.path in ('/api/account/guide', '/api/account/migrate') else 1_000_000 if self.path in ('/api/plan', '/api/plan/shortlist', '/api/account/plan', '/api/account/plan/shortlist') else 8192
             if not 0 < length <= maximum:
                 raise PlacesError("Request too large or empty.", 413)
             data = json.loads(self.rfile.read(length))
@@ -231,7 +231,14 @@ class Handler(SimpleHTTPRequestHandler):
                 result, cookie = self.server.accounts.start_google('http://' + self.headers['Host'])
                 self.json_response(result, cookie=cookie)
                 return
-            if self.path.startswith('/api/account/'):
+            if self.path in ('/api/account/plan', '/api/account/plan/shortlist'):
+                verified = self.server.accounts.prepare_friend_plan(data, self.headers.get('Cookie'))
+                self.json_response(self.server.planner.recommend(verified, shortlist=self.path.endswith('/shortlist')))
+                return
+            elif self.path == '/api/account/friend-guide':
+                self.json_response(self.server.accounts.followed_guide(data.get('ownerId'), self.headers.get('Cookie')))
+                return
+            elif self.path.startswith('/api/account/'):
                 result, cookie = self.server.accounts.handle('POST', self.path, data, self.headers.get('Cookie'))
                 self.json_response(result, cookie=cookie)
                 return

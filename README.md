@@ -97,4 +97,27 @@ Google sign-in is also supported through the local server. In Google Auth Platfo
 
 Choose Continue with Google in the account panel. The server uses PKCE, a ten-minute single-use login attempt and an HttpOnly callback cookie; the authorization code is exchanged server-side. Google credentials do not belong in source files or browser storage. Restarting the server invalidates unfinished login attempts and existing local sessions.
 
-Use `node --test tests/accounts.test.cjs` and `python -m unittest discover -s tests -p test_accounts.py` for account regressions. Run `supabase/tests/private_guides.sql` in SQL Editor for a live ownership and revision check. Its fictional records roll back in the same transaction. Following, friend access and guide sharing are the next milestone. Current profiles and guides permit owner access only.
+Use `node --test tests/accounts.test.cjs` and `python -m unittest discover -s tests -p "test_*.py"` for account and callback regressions. Run `supabase/tests/private_guides.sql` in SQL Editor for a live ownership and revision check. Its fictional records roll back in the same transaction. Approved following is available after applying the sharing migration below. Raw guide-table access remains owner-only.
+
+## Approved friends
+
+Run `supabase/migrations/20261110_approved_followers.sql` once after the private-account migration. In Friends, enter an exact username to request access. Only the guide owner can approve incoming requests. Approved access is one-way. Owners can decline requests or remove access, and readers can cancel requests or unfollow.
+
+Approved readers receive only places shown in the account guide. Hide place removes an entry from that shared view. The database filters hidden entries before returning a guide. Raw private guide rows remain owner-only, and shared reads use a narrowly scoped database function that checks the approved connection. Profile discovery exposes the display name and exact requested username. Following requests do not send email notifications.
+
+Choose Search guide next to an approved friend to use their places in the plan conversation. Cards identify the guide owner and distinguish personal notes and endorsements from Google hints. Friend-guide data stays in page memory and cannot be edited through My places. Each friend-guide AI request checks approval again and replaces client-submitted personal fields with current authorized database records. Returning to the window also refreshes the selected guide and clears it if permission has ended. Access removal prevents future authorized reads. Information someone already viewed cannot be recalled.
+
+Run `supabase/tests/approved_followers.sql` for pending/approved/revoked access, hidden-place filtering and self-approval protection. All fictional test records roll back. Local checks include `node --test tests/friends.test.cjs` and the account Python suite. The local server still needs to be running for real accounts and AI features. A publicly usable social app will require backend hosting.
+
+### Test with two accounts on one computer
+
+You can act as both people using separate browser sessions. Both connect to the same Supabase project through your running local server.
+
+1. Run `python server.py --port 8001`. Open `http://127.0.0.1:8001/prototype/` in your usual browser and sign in to your existing account. Save a username in My account and ensure your account guide is selected.
+2. Open the same URL in another browser or a private window. Create a second account with another email you control, confirm it if prompted, then sign in inside that second browser session and save a different username. If the confirmation link opens your usual browser, return to the second session to sign in there. The second account can have an empty guide.
+3. In the second account, open Friends and request the first account's exact username. While the request is pending, Search guide should be unavailable.
+4. In the first account, open Friends, choose Refresh requests and approve the second account. Return to the second session, refresh requests and choose Search guide beside the first account. Describe a plan to search their visible saved places.
+5. In the first account's My places, hide a place. Return focus to the second window so its selected guide refreshes and confirm that place is excluded.
+6. In the first account's Friends, remove the second account's access. Return focus to the second window and confirm the shared guide clears. Another shared-guide request should require approval again.
+
+Keep both sessions on the exact `127.0.0.1` URL above. A server restart requires signing in again. Friends on another computer will need a hosted backend and a public prototype URL to try this themselves.

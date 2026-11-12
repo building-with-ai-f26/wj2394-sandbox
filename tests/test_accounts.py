@@ -137,3 +137,28 @@ class AccountTests(unittest.TestCase):
             for thread in threads:thread.join()
         refreshes = [call for call in request.call_args_list if 'refresh_token' in call.args[0]]
         self.assertEqual(len(refreshes),1)
+
+    def test_only_the_session_owner_is_used_when_approving_a_follower(self):
+        client, cookie = self.client()
+        follower = '7e01ff2f-b906-46f4-8d52-2b5017195502'
+        with patch.object(client,'request',return_value=None) as request:
+            client.handle('POST','/api/account/approve',{'id':follower,'owner_id':follower},cookie)
+        self.assertIn('owner_id=eq.' + OWNER,request.call_args.args[0])
+        self.assertIn('follower_id=eq.' + follower,request.call_args.args[0])
+        self.assertEqual(request.call_args.args[1],{'approved':True})
+
+    def test_friend_plans_recheck_access_and_ignore_forged_personal_fields(self):
+        client, cookie = self.client()
+        visible = place()
+        body = {'ownerId':OWNER,'places':[{**visible,'note':'Forged endorsement','recommended':True,'googleCategory':'Cafe'},
+                                        place('Hidden place','https://maps.google.com/?cid=999')]}
+        with patch.object(client,'followed_guide',return_value={'places':[visible]}) as access:
+            verified = client.prepare_friend_plan(body,cookie)
+        self.assertEqual(len(verified['places']),1)
+        self.assertEqual(verified['places'][0]['note'],'Personal fixture note')
+        self.assertFalse(verified['places'][0]['recommended'])
+        self.assertEqual(verified['places'][0]['googleCategory'],'Cafe')
+        access.assert_called_once_with(OWNER,cookie)
+        with patch.object(client,'followed_guide',side_effect=AccountError('revoked',403)):
+            with self.assertRaises(AccountError):
+                client.prepare_friend_plan(body,cookie)

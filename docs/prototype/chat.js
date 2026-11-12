@@ -1,5 +1,5 @@
 /* Conversation stays in memory. Guide data is submitted only when sending a plan. */
-function createPlanChat({getPlaces, preparePlaces, onResults}) {
+function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => null, onAccessDenied = () => {}}) {
   const messages = [];
   let revision = 0;
   let busy = false;
@@ -8,7 +8,7 @@ function createPlanChat({getPlaces, preparePlaces, onResults}) {
   const send = document.querySelector('#plan-send');
   const status = document.querySelector('#plan-status');
   function guideSummary() {
-    return getPlaces().map(place => ({id: String(place.id), name: place.name, category: place.category,
+    return getPlaces().map(place => ({id: String(place.id), url:place.url, name: place.name, category: place.category,
       neighborhood: place.neighborhood, price: place.price, note: place.note, status: place.status,
       googleAddress: place._google?.formattedAddress || '', googleCategory: place._google?.primaryTypeDisplayName?.text || '',
       googleDescription: place._google?.editorialSummary?.text || '', googlePriceRange: place._google?.priceRange || null,
@@ -16,9 +16,14 @@ function createPlanChat({getPlaces, preparePlaces, onResults}) {
       tags: place.tags, googleReviewTags: place.googleReviewTags || []}));
   }
   async function request(route, body) {
+    const owner = getOwner();
+    if(owner) {route = route.replace('/api/plan','/api/account/plan');body = {...body,ownerId:owner.id};}
     const response = await fetch(route, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     const result = await response.json();
-    if(!response.ok) throw new Error(result.error || 'The conversation is temporarily unavailable.');
+    if(!response.ok) {
+      if(owner && (response.status === 401 || response.status === 403))onAccessDenied();
+      throw new Error(result.error || 'The conversation is temporarily unavailable.');
+    }
     return result;
   }
   function append(role, content) {
