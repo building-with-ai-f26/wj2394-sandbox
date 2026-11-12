@@ -25,6 +25,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
     $('#account-nav-label').textContent = signedIn ? 'My account' : 'Sign in';
     $('#account-copy').textContent = `Copy ${getDevicePlaces().length} device places to my account`;
     $('#account-copy').disabled = busy || !getDevicePlaces().length;
+    $('#account-google').disabled = busy;
     $('#guide-mode-label').textContent = mode === 'account' ? 'Your private account guide' : 'Your device guide';
     $('#guide-storage-note').textContent = mode === 'account'
       ? 'Your account guide is private. Changes save to your account. Export a backup anytime.'
@@ -92,6 +93,12 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
   }
   async function start() {
     let confirmationMessage = '';
+    const callbackQuery = new URLSearchParams(window.location.search);
+    if(callbackQuery.has('signin')) {
+      confirmationMessage = callbackQuery.get('signin') === 'failed' ? 'Google sign-in could not finish. Please try again.' : 'Google sign-in completed.';
+      callbackQuery.delete('signin');
+      window.history.replaceState(null,'',window.location.pathname + (callbackQuery.size ? '?' + callbackQuery : '') + window.location.hash);
+    }
     if(window.location?.hash) {
       const callback = new URLSearchParams(window.location.hash.slice(1));
       if(callback.has('access_token') || callback.has('error')) {
@@ -105,6 +112,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
       const session = await request('session');
       signedIn = session.signedIn;
       $('#account-auth-form').hidden = !session.configured;
+      $('#account-google').hidden = !session.configured;
       $('#account-setup').hidden = session.configured;
       if(signedIn) {
         $('#profile-name').value = session.profile.display_name || '';
@@ -112,7 +120,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
         await loadAccount();
       }
       render();
-      if(confirmationMessage && !signedIn) {
+      if(confirmationMessage) {
         say(confirmationMessage);
         document.querySelector('[data-view="account"]').click();
       }
@@ -129,6 +137,16 @@ function createAccounts({getDevicePlaces, onGuide, onMode}) {
       } finally {$('#account-password').value = '';}
     });
   });
+  $('#account-google').addEventListener('click', () => action(async () => {
+    await flush();
+    say('Opening Google sign-in…');
+    const result = await request('google/start', {});
+    const destination = new URL(result.url);
+    if(destination.protocol !== 'https:' || !destination.hostname.endsWith('.supabase.co') || destination.pathname !== '/auth/v1/authorize') {
+      throw new Error('Google sign-in returned an invalid address.');
+    }
+    window.location.assign(destination.href);
+  }));
   $('#account-profile-form').addEventListener('submit', event => {
     event.preventDefault();
     action(async () => {

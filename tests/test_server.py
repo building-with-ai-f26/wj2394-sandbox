@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from server import GooglePlaces, Handler, PlacesError, ThreadingHTTPServer
+from accounts import Accounts
 
 
 class Response:
@@ -80,6 +81,7 @@ class HTTPTests(unittest.TestCase):
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), QuietHandler)
         cls.server.places = GooglePlaces()
+        cls.server.accounts = Accounts('https://fixture.supabase.co', 'sb_publishable_fixture')
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = 'http://127.0.0.1:' + str(cls.server.server_port)
@@ -96,6 +98,32 @@ class HTTPTests(unittest.TestCase):
             data = json.load(response)
             self.assertFalse(data['configured'])
             self.assertNotIn('key', data)
+
+    def test_google_callback_accepts_provider_navigation_and_hides_tokens(self):
+        from http.client import HTTPConnection
+        connection = HTTPConnection('127.0.0.1', self.server.server_port)
+        connection.request('POST', '/api/account/google/start', body='{}', headers={'Content-Type':'application/json'})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        pending_cookie = response.getheader('Set-Cookie')
+        self.assertIn('provider=google', json.loads(response.read())['url'])
+        result = {'user':{'id':'1442ca54-196b-4d68-a6b9-91230125f4ba'},
+                  'access_token':'private-access', 'refresh_token':'private-refresh', 'expires_in':3600}
+        with patch.object(self.server.accounts, 'request', return_value=result):
+            connection.request('GET', '/api/account/google/callback?code=fixture-code',
+                               headers={'Cookie':pending_cookie, 'Sec-Fetch-Site':'cross-site'})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 303)
+            self.assertEqual(response.getheader('Location'), '/prototype/?signin=google')
+            self.assertEqual(response.getheader('Referrer-Policy'), 'no-referrer')
+            self.assertNotIn('private-access', str(response.getheaders()))
+            response.read()
+        connection.request('GET', '/api/account/google/callback?code=fixture-code',
+                           headers={'Cookie':pending_cookie, 'Sec-Fetch-Site':'cross-site'})
+        response = connection.getresponse()
+        self.assertEqual(response.getheader('Location'), '/prototype/?signin=failed')
+        response.read()
+        connection.close()
 
     def test_static_site_works_but_repo_secrets_are_not_served(self):
         with urlopen(self.base + '/prototype/') as response:

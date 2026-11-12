@@ -17,7 +17,7 @@ function setup(fetcher, hash = '') {
   const calls = [];
   const replacedURLs = [];
   const context = vm.createContext({
-    document:{querySelector:element}, URLSearchParams,
+    document:{querySelector:element}, URLSearchParams, URL,
     window:{addEventListener() {},confirm:()=>true,location:{hash,pathname:'/prototype/',search:''},history:{replaceState:(_state,_title,url)=>replacedURLs.push(url)}},
     InnerTableImport:{validateBackup:raw=>JSON.parse(raw).places},
     fetch:async (url,options={}) => {

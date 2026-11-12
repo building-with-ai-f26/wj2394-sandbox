@@ -153,14 +153,14 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("Referrer-Policy", "no-referrer" if urlsplit(self.path).path == '/api/account/google/callback' else "strict-origin-when-cross-origin")
         super().end_headers()
 
-    def local_request(self):
+    def local_request(self, oauth_callback=False):
         host = self.headers.get("Host", "")
         allowed = [f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"]
         origin = self.headers.get("Origin")
-        if host not in allowed or (origin and origin != "http://" + host) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+        if host not in allowed or (origin and origin != "http://" + host) or (not oauth_callback and self.headers.get("Sec-Fetch-Site") == "cross-site"):
             raise PlacesError("Only requests from this local app are accepted.", 403)
 
     def json_response(self, data, status=200, cookie=None):
@@ -182,7 +182,22 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             return super().do_GET()
         try:
-            self.local_request()
+            self.local_request(oauth_callback=route.path == '/api/account/google/callback')
+            if route.path == '/api/account/google/callback':
+                try:
+                    _, cookie = self.server.accounts.finish_google(parse_qs(route.query).get('code', [''])[0], self.headers.get('Cookie'))
+                    destination = '/prototype/?signin=google'
+                except AccountError:
+                    cookie = None
+                    destination = '/prototype/?signin=failed'
+                self.send_response(303)
+                self.send_header('Location', destination)
+                if cookie:
+                    self.send_header('Set-Cookie', cookie)
+                self.send_header('Set-Cookie', 'inner_table_google=; HttpOnly; SameSite=Lax; Path=/api/account/google; Max-Age=0')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
             if route.path.startswith('/api/account/'):
                 result, cookie = self.server.accounts.handle('GET', route.path, {}, self.headers.get('Cookie'))
                 self.json_response(result, cookie=cookie)
@@ -212,6 +227,10 @@ class Handler(SimpleHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
                 raise PlacesError("Send a JSON object.")
+            if self.path == '/api/account/google/start':
+                result, cookie = self.server.accounts.start_google('http://' + self.headers['Host'])
+                self.json_response(result, cookie=cookie)
+                return
             if self.path.startswith('/api/account/'):
                 result, cookie = self.server.accounts.handle('POST', self.path, data, self.headers.get('Cookie'))
                 self.json_response(result, cookie=cookie)

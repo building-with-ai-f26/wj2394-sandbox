@@ -15,6 +15,40 @@ def place(name='Fictional cafe', url='https://maps.google.com/?cid=123'):
 
 
 class AccountTests(unittest.TestCase):
+    def test_google_pkce_is_bound_to_browser_and_consumed_once(self):
+        from urllib.parse import parse_qs, urlsplit
+        client = Accounts('https://fixture.supabase.co', 'sb_publishable_fixture')
+        start, cookie = client.start_google('http://127.0.0.1:8001')
+        query = parse_qs(urlsplit(start['url']).query)
+        self.assertEqual(query['provider'], ['google'])
+        self.assertEqual(query['code_challenge_method'], ['s256'])
+        self.assertEqual(query['redirect_to'], ['http://127.0.0.1:8001/api/account/google/callback'])
+        self.assertIn('SameSite=Lax', cookie)
+        with patch.object(client, 'request') as upstream:
+            with self.assertRaises(AccountError):
+                client.finish_google('fixture-code', None)
+            upstream.assert_not_called()
+        response = {'user':{'id':OWNER}, 'access_token':'private-access', 'refresh_token':'private-refresh', 'expires_in':3600}
+        with patch.object(client, 'request', return_value=response) as upstream:
+            result, session_cookie = client.finish_google('fixture-code', cookie)
+        self.assertTrue(result['signedIn'])
+        self.assertNotIn('private-access', session_cookie)
+        self.assertEqual(upstream.call_args.args[0], '/auth/v1/token?grant_type=pkce')
+        self.assertIn('code_verifier', upstream.call_args.args[1])
+        with self.assertRaises(AccountError):
+            client.finish_google('fixture-code', cookie)
+
+    def test_google_rejects_expired_attempts_and_external_redirects(self):
+        client = Accounts('https://fixture.supabase.co', 'sb_publishable_fixture')
+        with self.assertRaises(AccountError):
+            client.start_google('https://unexpected.example')
+        _, cookie = client.start_google('http://127.0.0.1:8001')
+        next(iter(client.google_attempts.values()))['until'] = 0
+        with patch.object(client, 'request') as upstream:
+            with self.assertRaises(AccountError):
+                client.finish_google('fixture-code', cookie)
+            upstream.assert_not_called()
+
     def client(self):
         client = Accounts('https://fixture.supabase.co', 'sb_publishable_fixture')
         response = {'user':{'id':OWNER}, 'access_token':'private-access', 'refresh_token':'private-refresh', 'expires_in':3600}

@@ -1,5 +1,7 @@
 """Supabase accounts through the local server. Tokens stay in server memory."""
 from collections import deque
+import base64
+import hashlib
 from http.cookies import SimpleCookie, CookieError
 import json
 import math
@@ -8,11 +10,12 @@ import secrets
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit, quote, urlencode
 from urllib.request import Request, urlopen
 from uuid import UUID
 
 COOKIE = 'inner_table_session'
+OAUTH_COOKIE = 'inner_table_google'
 TAGS = {'conversation', 'fun', 'special', 'date', 'group'}
 
 
@@ -95,6 +98,58 @@ class Accounts:
         self.sessions = {}
         self.lock = threading.Lock()
         self.attempts = deque()
+        self.google_attempts = {}
+
+    def create_session(self, result, previous_cookie):
+        try:
+            user_id = str(UUID(result['user']['id']))
+            access, refresh, expiry = result['access_token'], result['refresh_token'], result['expires_in']
+            if not isinstance(access, str) or not access or not isinstance(refresh, str) or not refresh or type(expiry) not in (int, float) or not 0 < expiry <= 86400:
+                raise ValueError()
+        except (KeyError, ValueError, TypeError):
+            raise AccountError('Sign-in returned an incomplete session. Please try again.', 502) from None
+        previous_id, _ = self.get_session(previous_cookie)
+        new_id = secrets.token_urlsafe(32)
+        with self.lock:
+            self.sessions = {key:value for key, value in self.sessions.items() if value['until'] > time.time()}
+            if len(self.sessions) >= 1000:
+                raise AccountError('Too many active sessions. Please try later.', 503)
+            self.sessions.pop(previous_id, None)
+            self.sessions[new_id] = {'user':{'id':user_id}, 'access':access, 'refresh':refresh,
+                                     'expires':time.time() + expiry, 'until':time.time() + 28800, 'lock':threading.Lock()}
+        return {'signedIn':True}, self.cookie(new_id)
+
+    def start_google(self, origin):
+        if not self.configured:
+            raise AccountError('Account sign-in is being prepared.', 503)
+        if not re.fullmatch(r'http://(?:127\.0\.0\.1|localhost):[0-9]{1,5}', origin):
+            raise AccountError('Invalid sign-in address.')
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+        attempt_id = secrets.token_urlsafe(32)
+        with self.lock:
+            self.google_attempts = {key:value for key, value in self.google_attempts.items() if value['until'] > time.time()}
+            if len(self.google_attempts) >= 1000:
+                raise AccountError('Please try signing in later.', 429)
+            self.google_attempts[attempt_id] = {'verifier':verifier, 'until':time.time() + 600}
+        query = urlencode({'provider':'google', 'redirect_to':origin + '/api/account/google/callback',
+                           'code_challenge':challenge, 'code_challenge_method':'s256', 'scopes':'openid email profile'})
+        cookie = f'{OAUTH_COOKIE}={attempt_id}; HttpOnly; SameSite=Lax; Path=/api/account/google; Max-Age=600'
+        return {'url':self.url + '/auth/v1/authorize?' + query}, cookie
+
+    def finish_google(self, code, cookie):
+        parsed = SimpleCookie()
+        try:
+            parsed.load(cookie or '')
+            attempt_id = parsed[OAUTH_COOKIE].value if OAUTH_COOKIE in parsed else ''
+        except CookieError:
+            attempt_id = ''
+        with self.lock:
+            attempt = self.google_attempts.pop(attempt_id, None)
+        if not attempt or attempt['until'] <= time.time() or not isinstance(code, str) or not 1 <= len(code) <= 2048:
+            raise AccountError('This sign-in expired. Start Google sign-in again.', 401)
+        result = self.request('/auth/v1/token?grant_type=pkce', {'auth_code':code, 'code_verifier':attempt['verifier']})
+        return self.create_session(result, cookie)
 
     def request(self, path, data=None, token=None, method=None, prefer=None):
         headers = {'apikey': self.key, 'Content-Type': 'application/json'}
@@ -200,20 +255,7 @@ class Accounts:
                 self.request('/auth/v1/signup', {'email': email, 'password': password})
                 return {'message': 'Confirm your email if prompted, then sign in here.'}, None
             result = self.request('/auth/v1/token?grant_type=password', {'email': email, 'password': password})
-            try:
-                user_id = str(UUID(result['user']['id']))
-                access, refresh, expiry = result['access_token'], result['refresh_token'], result['expires_in']
-            except (KeyError, ValueError, TypeError):
-                raise AccountError('Sign-in returned an incomplete session. Please try again.', 502) from None
-            new_id = secrets.token_urlsafe(32)
-            with self.lock:
-                self.sessions = {key: value for key, value in self.sessions.items() if value['until'] > time.time()}
-                if len(self.sessions) >= 1000:
-                    raise AccountError('Too many active sessions. Please try later.', 503)
-                self.sessions.pop(session_id, None)
-                self.sessions[new_id] = {'user': {'id': user_id}, 'access': access, 'refresh': refresh,
-                                         'expires': time.time() + expiry, 'until': time.time() + 28800, 'lock': threading.Lock()}
-            return {'signedIn': True}, self.cookie(new_id)
+            return self.create_session(result, cookie)
         if method == 'POST' and path == '/api/account/sign-out':
             with self.lock:
                 self.sessions.pop(session_id, None)
