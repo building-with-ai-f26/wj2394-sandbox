@@ -566,7 +566,7 @@ footer .wordmark {
 
 
 @media(max-width:760px) {
-  
+
   body {
   padding-bottom:calc(76px + env(safe-area-inset-bottom))
 }
@@ -859,4 +859,3 @@ footer .wordmark {
 }
 
 }
-
