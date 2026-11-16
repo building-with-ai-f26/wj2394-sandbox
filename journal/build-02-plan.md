@@ -8,6 +8,16 @@ Optional working notes. Publish your required build log on `docs/index.html`; no
 
 ## 1. What you made
 
+### Publishing and current screenshots · November 16, 2026
+
+The builder approved publishing. Switched GitHub Pages from the legacy branch build to the prepared Actions workflow, verified the two required variable names without displaying values, committed the reviewed report and analytics batch as `32e98c7`, and pushed it. GitHub's deployment completed successfully. The generated public browser configuration matched the local configuration. Environment files and the generated configuration remained ignored and untracked. Published only the `docs/` artifact.
+
+The builder then identified outdated Build 2 screenshots. Replaced the report's November 10–12 prototype images with current November 16 captures of the chat composer, Profile including Google sign-in, and Friends. Captures used a separate empty localhost guide with blank credentials and an unsent example plan. No personal saved records were captured. The optional import-page screenshot capture timed out twice, so that capture was stopped and omitted. Temporary viewport overrides were reset. Original images remain historical repository assets.
+
+Published-page checks passed section anchors and 19 linked pages/assets. Clicking the live demo opened the current static prototype. PostHog ingestion was delayed during the first check, then confirmed separate public report and prototype pageviews, `report_link_clicked` from the report and a public session recording. By the 9:58 AM check, the public setup interval contained three report pageviews, one prototype pageview and one report-link click. These are browser checks by the builder's agent. Visual review of replay masking remains pending. Backend account and AI features still require the local server.
+
+Clock observations span 9:51:19–9:58:08 AM America/New_York, approximately seven minutes of estimated session coverage including tool waits. This interval follows the earlier audit/edit intervals and excludes the gap after 9:49:09. It is partial coverage through the verification checkpoint. Weekly hours remain pending reconciliation. No Google Places or OpenRouter plan requests were initiated for publishing or screenshots. The OpenRouter usage endpoint check was read-only.
+
 ### Product-page and analytics review · November 16, 2026
 
 The builder approved preparing the audit fixes for review before pushing. Updated the class product page to PRD v2 with the current chat workflow, shared-list import, Google evidence, private accounts and approved followers. Moved the phone-layout screenshot into the showcase and retained the Build 1 image in its historical log. Corrected the local server instructions and described the static Pages preview and backend hosting requirement. Added visible PostHog recording notices, a repository link and a PostHog insight screenshot cropped to exclude browser tabs and bookmarks. Kept missing weekly totals pending.
