@@ -121,3 +121,13 @@ You can act as both people using separate browser sessions. Both connect to the 
 6. In the first account's Friends, remove the second account's access. Return focus to the second window and confirm the shared guide clears. Another shared-guide request should require approval again.
 
 Keep both sessions on the exact `127.0.0.1` URL above. A server restart requires signing in again. Friends on another computer will need a hosted backend and a public prototype URL to try this themselves.
+
+## Design tools and analytics
+
+Impeccable and the official Mobbin plugin are installed in the builder's Codex setup. Mobbin OAuth sign-in succeeded. Mobbin's reference library requires an eligible paid plan. New skills become available on the next Codex turn.
+
+PostHog's Inner Table. project is connected for analytics review. Set `POSTHOG_PROJECT_TOKEN` and `POSTHOG_HOST` in the ignored `.env`, then run `python analytics_config.py` before serving locally. The generated `docs/analytics-config.json` is ignored by Git. The browser project token is public SDK configuration. Administrative credentials stay outside the site.
+
+Both the report and prototype load `docs/analytics.js` from the HTML head and display a recording notice. Events record pageviews, fixed control names, view names and form identifiers, with `surface` and `environment` identifying report/prototype and local/public traffic. Report buttons send `report_link_clicked` with a fixed `link` value, including `prototype` for the demo. They exclude link URLs and text. The saved PostHog interaction funnel uses `control_clicked`, matching the prototype instrumentation. Session replay masks all text and inputs and blocks private app regions and images. Console and network recording are disabled. Confirmation callback URLs skip analytics.
+
+The prepared `.github/workflows/pages.yml` generates the browser configuration from repository Actions variables `POSTHOG_PROJECT_TOKEN` and `POSTHOG_HOST`, then publishes `docs/`. When this workflow is approved for publishing, change the repository's Pages build source to **GitHub Actions**. The existing branch-based Pages deployment cannot include the ignored generated configuration. After deployment, open the published report, click the demo, and verify report/public pageviews and `report_link_clicked` separately from local prototype events. Check a masked recording and capture the PostHog evidence. Public verification is pending as of November 16.

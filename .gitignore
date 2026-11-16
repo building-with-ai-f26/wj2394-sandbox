@@ -6,6 +6,7 @@
 *.key
 secrets.*
 credentials.json
+docs/analytics-config.json
 
 # AI Agent Local State / Logs (keep curated logs in journal/)
 .claude/

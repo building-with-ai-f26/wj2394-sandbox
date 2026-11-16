@@ -10,13 +10,13 @@
 ## 2. Commands
 - **Install dependencies:** None. Python and Node.js must be available.
 - **Run locally:** `python server.py --port 8001`, then open `http://127.0.0.1:8001/prototype/`. Local development only; do not expose the repository-root server publicly.
-- **Run deterministic tests:** `node --test tests/matcher.test.cjs tests/imports.test.cjs tests/google.test.cjs tests/accounts.test.cjs`
+- **Run deterministic tests:** `node --test tests/matcher.test.cjs tests/imports.test.cjs tests/google.test.cjs tests/accounts.test.cjs tests/friends.test.cjs`
 - **Python checks:** `python -m unittest discover -s tests -p "test_*.py"`. Private report usage summary through `python usage.py`.
 - **Run model evals:** Not applicable for Build 1; matching is rule-based. Build 4 track not selected yet.
 
 ## 3. Non-Negotiable Engineering Rules
 
-Device imports stay in browser local storage until the user explicitly copies them to their private Supabase account. Account guides use owner-only RLS policies. Never copy personal data into tracked fixtures, logs or screenshots without explicit instruction. Connect Google is future work, not an implemented OAuth flow. Imported places enter the guide automatically; do not require a review of every entry. Keep guide inclusion separate from personal endorsement and visit status. Users can edit all statuses and hide/show a place anytime. Label inferred tags and saved-list provenance; never imply a visit, verified suitability, or endorsement from an import. Category, visit, note, and neighborhood are optional. Never reinstate a restaurant-only gate. Filters use recorded details or explicitly labeled tag suggestions, not invented facts.
+Device imports stay in browser local storage until the user explicitly copies them to their private Supabase account. Raw account-guide rows use owner-only RLS. Approved followers read through a permission-checked function that excludes hidden places. Recheck sharing permission before friend-guide AI calls. Never copy personal data into tracked fixtures, logs or screenshots without explicit instruction. Connect Google is future work, not an implemented OAuth flow. Imported places enter the guide automatically; do not require a review of every entry. Keep guide inclusion separate from personal endorsement and visit status. Users can edit all statuses and hide/show a place anytime. Label inferred tags and saved-list provenance; never imply a visit, verified suitability, or endorsement from an import. Category, visit, note, and neighborhood are optional. Never reinstate a restaurant-only gate. Filters use recorded details or explicitly labeled tag suggestions, not invented facts.
 1. **Plan before coding:** Before touching multiple files, propose a brief plan and wait for approval.
 2. **Small batches:** Make small, focused changes that can be reviewed and explained by a human in a single Pull Request.
 3. **Explainability:** Avoid unnecessary abstractions or dependencies. Help the human builder understand the main components, what changed, why it matters, what could break, and how it was checked.
