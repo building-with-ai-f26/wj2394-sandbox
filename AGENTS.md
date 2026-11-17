@@ -9,7 +9,7 @@
 
 ## 2. Commands
 - **Install dependencies:** None. Python and Node.js must be available.
-- **Run locally:** `python server.py --port 8001`, then open `http://127.0.0.1:8001/prototype/`. Local development only; do not expose the repository-root server publicly.
+- **Run locally:** `python server.py --port 8001`, then open `http://127.0.0.1:8001/prototype/`. Local mode defaults to loopback. The approved public demo uses explicit `APP_MODE=public` behind Render HTTPS, with a validated `RENDER_EXTERNAL_URL` or `APP_PUBLIC_ORIGIN`. Both modes serve only `docs/`. See README for hosted setup and process-scoped limits.
 - **Run deterministic tests:** `node --test tests/matcher.test.cjs tests/imports.test.cjs tests/google.test.cjs tests/accounts.test.cjs tests/friends.test.cjs`
 - **Python checks:** `python -m unittest discover -s tests -p "test_*.py"`. Private report usage summary through `python usage.py`.
 - **Run model evals:** Not applicable for Build 1; matching is rule-based. Build 4 track not selected yet.

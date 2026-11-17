@@ -1,5 +1,7 @@
-"""Local-only static site and Google Places proxy. No third-party dependencies."""
+"""Inner Table. app with explicit local and HTTPS-proxied public modes."""
 import argparse
+from collections import deque
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,50 @@ from shared_lists import fetch_shared_list, SharedListError
 ROOT = Path(__file__).resolve().parent
 PLACE_ID = re.compile(r"[A-Za-z0-9_-]{5,255}\Z")
 PHOTO_NAME = re.compile(r"places/[A-Za-z0-9_-]{5,255}/photos/[A-Za-z0-9_-]{1,2000}\Z")
+
+
+def public_app_origin():
+    mode = os.getenv('APP_MODE', 'local')
+    if mode not in ('local', 'public'):
+        raise ValueError('APP_MODE must be local or public.')
+    if mode == 'local':
+        return ''
+    value = os.getenv('APP_PUBLIC_ORIGIN') or os.getenv('RENDER_EXTERNAL_URL', '')
+    parsed = urlsplit(value)
+    if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
+            or parsed.port or parsed.path not in ('', '/') or parsed.query or parsed.fragment
+            or parsed.hostname in ('localhost', '127.0.0.1', '::1')):
+        raise ValueError('Public mode requires the app HTTPS origin in APP_PUBLIC_ORIGIN or RENDER_EXTERNAL_URL.')
+    return value.rstrip('/')
+
+
+class RequestLimiter:
+    """Bound total and per-visitor API traffic for one running demo instance."""
+    def __init__(self, total=300, per_visitor=60, window=3600):
+        self.total = total
+        self.per_visitor = per_visitor
+        self.window = window
+        self.requests = deque()
+        self.visitors = {}
+        self.lock = threading.Lock()
+
+    def allow(self, visitor):
+        now = time.monotonic()
+        cutoff = now - self.window
+        with self.lock:
+            while self.requests and self.requests[0] <= cutoff:
+                self.requests.popleft()
+            self.visitors = {key:times for key,times in self.visitors.items() if times[-1] > cutoff}
+            times = self.visitors.get(visitor, deque())
+            while times and times[0] <= cutoff:
+                times.popleft()
+            if (len(self.requests) >= self.total or len(times) >= self.per_visitor
+                    or (visitor not in self.visitors and len(self.visitors) >= 2000)):
+                return False
+            self.requests.append(now)
+            times.append(now)
+            self.visitors[visitor] = times
+            return True
 
 
 def load_env(path=ROOT / ".env"):
@@ -147,6 +193,17 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT / "docs"), **kwargs)
 
+    def setup(self):
+        super().setup()
+        if getattr(self.server, 'public_origin', ''):
+            self.connection.settimeout(30)
+
+    def log_message(self, format, *args):
+        if getattr(self.server, 'public_origin', ''):
+            print(format % args, flush=True)
+        else:
+            super().log_message(format, *args)
+
     def log_request(self, code="-", size="-"):
         # Request counters belong in the private ledger, with photo references omitted.
         self.log_message("%s %s %s", self.command, urlsplit(self.path).path, code)
@@ -155,14 +212,29 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer" if urlsplit(self.path).path == '/api/account/google/callback' else "strict-origin-when-cross-origin")
+        if getattr(self.server, 'public_origin', ''):
+            self.send_header('Strict-Transport-Security', 'max-age=31536000')
         super().end_headers()
 
-    def local_request(self, oauth_callback=False):
+    def check_request(self, oauth_callback=False):
         host = self.headers.get("Host", "")
-        allowed = [f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"]
+        public_origin = getattr(self.server, 'public_origin', '')
+        expected_origin = public_origin or 'http://' + host
+        allowed = [urlsplit(public_origin).netloc] if public_origin else [f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"]
         origin = self.headers.get("Origin")
-        if host not in allowed or (origin and origin != "http://" + host) or (not oauth_callback and self.headers.get("Sec-Fetch-Site") == "cross-site"):
-            raise PlacesError("Only requests from this local app are accepted.", 403)
+        if host not in allowed or (origin and origin != expected_origin) or (not oauth_callback and self.headers.get("Sec-Fetch-Site") == "cross-site"):
+            raise PlacesError("Open Inner Table. at its app address to make this request.", 403)
+        if public_origin and self.command == 'POST' and origin != public_origin:
+            raise PlacesError('This request needs to come from the app.', 403)
+        if public_origin and not oauth_callback:
+            # Render supplies the visitor address as the first forwarded entry.
+            forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+            try:
+                visitor = str(ipaddress.ip_address(forwarded or self.client_address[0]))
+            except ValueError:
+                visitor = self.client_address[0]
+            if not self.server.api_limiter.allow(visitor):
+                raise PlacesError('The demo request limit was reached. Please try again later.', 429)
 
     def json_response(self, data, status=200, cookie=None):
         content = json.dumps(data).encode()
@@ -176,6 +248,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         route = urlsplit(self.path)
+        if route.path == '/healthz':
+            self.json_response({'ok': True})
+            return
         if not route.path.startswith("/api/"):
             # Static files come exclusively from docs, never the repo root or .env.
             if any(part.startswith(".") for part in route.path.split("/") if part):
@@ -183,7 +258,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             return super().do_GET()
         try:
-            self.local_request(oauth_callback=route.path == '/api/account/google/callback')
+            self.check_request(oauth_callback=route.path == '/api/account/google/callback')
             if route.path == '/api/account/google/callback':
                 try:
                     _, cookie = self.server.accounts.finish_google(parse_qs(route.query).get('code', [''])[0], self.headers.get('Cookie'))
@@ -195,7 +270,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_header('Location', destination)
                 if cookie:
                     self.send_header('Set-Cookie', cookie)
-                self.send_header('Set-Cookie', 'inner_table_google=; HttpOnly; SameSite=Lax; Path=/api/account/google; Max-Age=0')
+                secure = '; Secure' if getattr(self.server, 'public_origin', '') else ''
+                self.send_header('Set-Cookie', 'inner_table_google=; HttpOnly; SameSite=Lax; Path=/api/account/google; Max-Age=0' + secure)
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
@@ -218,7 +294,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            self.local_request()
+            self.check_request()
             if self.headers.get_content_type() != "application/json":
                 raise PlacesError("Send JSON.", 415)
             length = int(self.headers.get("Content-Length", "0"))
@@ -229,7 +305,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(data, dict):
                 raise PlacesError("Send a JSON object.")
             if self.path == '/api/account/google/start':
-                result, cookie = self.server.accounts.start_google('http://' + self.headers['Host'])
+                origin = getattr(self.server, 'public_origin', '') or 'http://' + self.headers['Host']
+                result, cookie = self.server.accounts.start_google(origin)
                 self.json_response(result, cookie=cookie)
                 return
             if self.path == '/api/import/maps-list':
@@ -266,18 +343,24 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8001)
-    args = parser.parse_args()
     load_env()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    server.accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=int(os.getenv('PORT', '8001')))
+    args = parser.parse_args()
+    try:
+        origin = public_app_origin()
+    except ValueError as error:
+        parser.error(str(error))
+    server = ThreadingHTTPServer(('0.0.0.0' if origin else '127.0.0.1', args.port), Handler)
+    server.public_origin = origin
+    server.api_limiter = RequestLimiter()
+    server.accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''), origin)
     server.planner = Planner(os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"), UsageLog(ROOT / ".local" / "usage.jsonl"))
     server.places = GooglePlaces(os.getenv("GOOGLE_MAPS_API_KEY", ""),
                                  os.getenv("GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION", "40"),
                                  os.getenv("GOOGLE_PLACES_REVIEWS_ENABLED", "false").lower() == "true",
                                  UsageLog(ROOT / ".local" / "usage.jsonl"))
-    print(f"Inner Table. local app: http://127.0.0.1:{args.port}/prototype/", flush=True)
+    print('Inner Table. app: ' + (origin or f'http://127.0.0.1:{args.port}') + '/prototype/', flush=True)
     print("Google key configured: " + ("yes" if server.places.key else "no") + "; key values are never printed.", flush=True)
     try:
         server.serve_forever()

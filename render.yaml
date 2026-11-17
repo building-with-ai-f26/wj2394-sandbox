@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: inner-table-demo
+    runtime: python
+    plan: free
+    branch: codex/public-demo
+    buildCommand: python analytics_config.py
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: APP_MODE
+        value: public
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+      - key: GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION
+        value: "40"
+      - key: GOOGLE_PLACES_REVIEWS_ENABLED
+        value: "true"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: POSTHOG_PROJECT_TOKEN
+        sync: false
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com

@@ -882,3 +882,7 @@ footer .wordmark {
 }
 
 }
+/* Demo controls follow the guide's existing typography and button styles. */
+.demo-controls {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+.demo-controls p {margin:0;}
+.shortlist-feedback {padding:20px 0;border-top:1px solid #dce5e5;margin-top:24px;}

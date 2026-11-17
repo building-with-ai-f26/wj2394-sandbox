@@ -78,10 +78,10 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       messages.push(turn, {role: 'assistant', content: result.reply});
       append('assistant', result.reply);
       onResults(result);
-      status.textContent = `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. ` + (coverage.error ? 'Google details are unavailable for some places. Suggestions use the saved notes and details currently available. ' : '') + 'Keep chatting to refine the shortlist.';
+      status.textContent = (coverage.sample ? 'Suggestions use fictional sample details. ' : `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. `) + (coverage.error ? 'Google details are unavailable for some places. Suggestions use the saved notes and details currently available. ' : '') + 'Keep chatting to refine the shortlist.';
     } catch (error) {
       if (context !== revision) return;
-      status.textContent = error instanceof SyntaxError ? 'The conversation needs the local Inner Table server.' : error.message;
+      status.textContent = error instanceof SyntaxError ? 'The conversation could not reach Inner Table. Please try again shortly.' : error.message;
       input.value = text;
       // Failed turns are excluded from subsequent model history.
       transcript.lastElementChild?.remove();

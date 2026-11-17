@@ -3,6 +3,7 @@ const I = InnerTableImport;
 const STORE = 'inner-table-places-v1';
 let account = null, friends = null, friendGuide = null, guideMode = 'device';
 let places = [], pending = null, storageBroken = false;
+let demoMode = false;
 const selectedPlaces = new Set();
 
 try {
@@ -39,13 +40,44 @@ function showView(view) {
   window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
 }
 document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click',() => showView(node.dataset.view)));
-function discoverPlaces() { return (friendGuide ? friendGuide.places : places).filter(I.ready).map(google.merge); }
+function discoverPlaces() {
+  if(demoMode) return InnerTableDemo;
+  return (friendGuide ? friendGuide.places : places).filter(I.ready).map(google.merge);
+}
+function setDemoMode(enabled) {
+  demoMode = enabled;
+  planChat.reset();
+  renderDiscover();
+}
+$('#try-demo').addEventListener('click', () => setDemoMode(true));
+$('#leave-demo').addEventListener('click', () => setDemoMode(false));
 let planResults = null;
-const planChat = createPlanChat({getOwner:()=>friends?.getOwner(), onAccessDenied:()=>friends.leave('This friend’s guide is no longer available. You are back in your own guide.'), getPlaces: discoverPlaces, preparePlaces: async ids => {await googleReady;return google.prepareForPlan(ids);}, onResults: result => {planResults = result; renderDiscover();}});
+const planChat = createPlanChat({
+  getOwner: () => demoMode ? null : friends?.getOwner(),
+  onAccessDenied: () => friends.leave('This friend’s guide is no longer available. You are back in your own guide.'),
+  getPlaces: discoverPlaces,
+  preparePlaces: async ids => {
+    if(demoMode) return {requested:ids.length, checked:0, error:'', sample:true};
+    await googleReady;
+    return google.prepareForPlan(ids);
+  },
+  onResults: result => {
+    planResults = result;
+    $('#shortlist-feedback-status').textContent = '';
+    renderDiscover();
+  }
+});
+for(const id of ['feedback-helpful','feedback-not-yet']) {
+  $('#' + id).addEventListener('click', () => {$('#shortlist-feedback-status').textContent = 'Thanks for your feedback.';});
+}
 function renderDiscover() {
+  $('#demo-controls').hidden = demoMode;
+  $('#demo-notice').hidden = !demoMode;
+  $('#discover-view .guide-person').hidden = demoMode;
   const results = $('#results');
   results.replaceChildren();
   const hasReply = planResults !== null;
+  $('#shortlist-feedback').hidden = !hasReply;
   results.hidden = !hasReply;
   $('#result-summary').closest('.list-heading').hidden = !hasReply;
   $('#discover-view .hero').hidden = true;
@@ -61,7 +93,7 @@ function renderDiscover() {
     outcome.recognized = true;
     outcome.unsupported = false;
   }
-  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
+  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'Fictional sample guide' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
     const noPersonal = !data.length && !friendGuide;
@@ -78,7 +110,7 @@ function renderDiscover() {
   }
   outcome.matches.forEach(({place,reasons}) => {
     const card = element('article','card');
-    const photo=google.photo(place);
+    const photo=demoMode ? null : google.photo(place);
     if(photo) {
       const image = element('img','place-photo');
       image.src = photo;
@@ -89,27 +121,27 @@ function renderDiscover() {
       card.classList.add('has-photo');
     }
     const body = element('div','card-body');
-    body.append(element('p','card-source',friendGuide ? `From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide` : 'From your guide'));
+    body.append(element('p','card-source',demoMode ? 'Fictional sample guide' : friendGuide ? `From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide` : 'From your guide'));
     const metadata = [I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price === null ? '' : `~$${place.price} per person`].filter(Boolean);
     body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
-    if(place.note) body.append(element('p','note',friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note · ${place.note}` : place.note));
-    if(planResults) body.append(element('p','reason',reasons.join('. ')+'.'));
+    if(place.note) body.append(element('p','note',!demoMode && friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note · ${place.note}` : place.note));
+    if(planResults) body.append(element('p','reason',reasons.join(' ')));
     const tags = element('div','tags');tags.append(element('span','tag',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
-    const extra = google.extras(place);
+    const extra = demoMode ? null : google.extras(place);
     if(extra) {
       const details = element('details','place-more');
       details.append(element('summary','','Google details & reviews'),extra);
       body.append(details);
     }
-    const bottom = element('div','card-bottom');if(friendGuide)bottom.append(element('span','',`From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide`));bottom.append(element('span','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
-    {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
+    const bottom = element('div','card-bottom');if(!demoMode && friendGuide)bottom.append(element('span','',`From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide`));bottom.append(element('span','',demoMode ? 'Fictional example · Sample details' : place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
+    if(!demoMode) {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
     card.append(body,bottom);results.append(card);
   });
 }
 $('#search-form').addEventListener('submit',event => {event.preventDefault();planChat.submit();});
 document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;planChat.submit();}));
 $('#reset').addEventListener('click',() => {planChat.reset();HTMLFormElement.prototype.reset.call($('#search-form'));renderDiscover();$('#occasion').focus();});
-function changed() {persist();renderSaved();renderDiscover();}
+function changed() {if(demoMode)setDemoMode(false);persist();renderSaved();renderDiscover();}
 function updateSelection() {
   $('#selection-count').textContent = `${selectedPlaces.size} selected`;
   $('#select-all-places').disabled = !places.length || selectedPlaces.size === places.length;
@@ -301,6 +333,7 @@ const googleReady = google.start();
 friends = createFriends({
   beforeSwitch: () => account.flush(),
   onSelect: guide => {
+    demoMode = false;
     (friendGuide?.places || []).forEach(place => google.forget(place.id));
     friendGuide = {...guide,places:I.validateBackup(JSON.stringify({version:1,places:guide.places}))};
     planChat.reset();renderDiscover();
@@ -316,6 +349,7 @@ account = createAccounts({
   getDevicePlaces: () => devicePlaces,
   onMode: mode => {guideMode = mode;},
   onGuide: (records, mode) => {
+    demoMode = false;
     selectedPlaces.clear();
     places.forEach(place => google.forget(place.id));
     places = records;
