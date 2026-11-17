@@ -48,3 +48,11 @@ Optional working notes. Publish your required build log on `docs/index.html`; no
 ## Future product direction
 
 The builder proposed OpenTable/Resy reservation links, followed by supported booking integrations, plus shared plans with booked restaurants and optional calendar availability. Calendar and plan sharing need explicit visibility choices for selected friends. These remain roadmap work beyond the public demo setup.
+
+### Planning and shortlist design review, November 17
+
+Prepared on `codex/planning-design` for builder review. The planning screen now shows the selected guide next to the chat composer and a direct route to Friends. Desktop places the conversation alongside the shortlist. Phones use a single column with compact headings after a reply. Results distinguish the AI reason, the saved note, visit status and endorsement, with existing Google photos and source details when available. Sample places remain explicitly fictional.
+
+Confirmed a complete sample plan through the running local server and the real AI provider. Reviewed desktop and 400px phone layouts. Twelve existing checks passed for sample isolation, friend access, bulk selection and analytics privacy. Mobbin search was unavailable because the connected plan requires an upgrade. Used the builder’s supplied Beli screenshots and existing white/teal visual system. The design detector flagged small text and existing layout warnings. Increased new supporting text to at least 12px, and visually checked the scoped layout. Live venue photo presentation still needs a populated real-guide check.
+
+Reservation follow-up remains staged. First show a verified venue-specific Resy or OpenTable link alongside Maps when one is available. Direct availability and in-app booking can follow supported provider access. Shared dinner plans and optional calendar sharing belong in a subsequent iteration. No reservation availability is represented in this design pass. Publish the redesign after the builder’s review.

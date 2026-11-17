@@ -73,14 +73,21 @@ for(const id of ['feedback-helpful','feedback-not-yet']) {
 function renderDiscover() {
   $('#demo-controls').hidden = demoMode;
   $('#demo-notice').hidden = !demoMode;
-  $('#discover-view .guide-person').hidden = demoMode;
+  $('#discover-view .guide-picker').hidden = demoMode;
   const results = $('#results');
   results.replaceChildren();
   const hasReply = planResults !== null;
+  $('#discover-view').dataset.hasResults = String(hasReply);
   $('#shortlist-feedback').hidden = !hasReply;
   results.hidden = !hasReply;
   $('#result-summary').closest('.list-heading').hidden = !hasReply;
-  $('#discover-view .hero').hidden = true;
+  $('#discover-view .hero').hidden = false;
+  $('#plan-start').hidden = hasReply;
+  const guideCount = discoverPlaces().length;
+  $('#plan-start-copy').textContent = guideCount
+    ? `Start with an occasion, a neighborhood or a craving. We’ll search ${guideCount} saved ${guideCount === 1 ? 'place' : 'places'} in ${demoMode ? 'the fictional sample guide' : friendGuide ? 'this friend’s guide' : 'your guide'}.`
+    : 'Bring in your saved places, then tell us what you have in mind. Your guide will be ready to search.';
+  $('#plan-start [data-view]').hidden = demoMode || !!friendGuide;
   $('#discover-view .method').hidden = !hasReply;
   if(!hasReply) {
     $('#result-summary').textContent = '';
@@ -121,12 +128,24 @@ function renderDiscover() {
       card.classList.add('has-photo');
     }
     const body = element('div','card-body');
-    body.append(element('p','card-source',demoMode ? 'Fictional sample guide' : friendGuide ? `From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide` : 'From your guide'));
+    const source = element('p','card-source');
+    const avatar = element('span','guide-avatar',demoMode ? 'S' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username).slice(0,1).toUpperCase() : 'Y');
+    avatar.setAttribute('aria-hidden','true');
+    source.append(avatar,document.createTextNode(demoMode ? 'Fictional sample guide' : friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
+    body.append(source);
     const metadata = [I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price === null ? '' : `~$${place.price} per person`].filter(Boolean);
     body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
-    if(place.note) body.append(element('p','note',!demoMode && friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note · ${place.note}` : place.note));
-    if(planResults) body.append(element('p','reason',reasons.join(' ')));
-    const tags = element('div','tags');tags.append(element('span','tag',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
+    if(planResults) {
+      const fit = element('div','reason');
+      fit.append(element('strong','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
+      body.append(fit);
+    }
+    if(place.note) {
+      const note = element('blockquote','note');
+      note.append(element('span','note-label',demoMode ? 'Sample note' : friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note` : 'Your note'),element('p','',place.note));
+      body.append(note);
+    }
+    const tags = element('div','tags');tags.append(element('span','visit-status',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
     const extra = demoMode ? null : google.extras(place);
     if(extra) {
       const details = element('details','place-more');
