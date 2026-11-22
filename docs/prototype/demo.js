@@ -1,9 +1,42 @@
-/* Fictional examples stay in memory and never enter a device or account guide. */
+/* Real NYC venues from public sources, separate from personal and friends’ guides. */
 const InnerTableDemo = [
-  {id:'demo-1', name:'Sample · Juniper Kitchen', category:'restaurant', neighborhood:'West Village', price:75, tags:['conversation','date'], note:'Fictional example. A quiet Japanese dinner for catching up, with space to talk. Sample all-in budget $75 each.'},
-  {id:'demo-2', name:'Sample · Orchard Supper', category:'restaurant', neighborhood:'Lower East Side', price:65, tags:['fun','conversation','group'], note:'Fictional example. A lively dinner with friends, with a quieter back room for conversation. Sample all-in budget $65 each.'},
-  {id:'demo-3', name:'Sample · Lantern Room', category:'restaurant', neighborhood:'Chelsea', price:95, tags:['special','date','conversation'], note:'Fictional example. A special dinner in a small dining room. Sample all-in budget $95 each.'},
-  {id:'demo-4', name:'Sample · Sunday Window', category:'cafe', neighborhood:'West Village', price:20, tags:['conversation'], note:'Fictional example. Coffee and pastries for an afternoon catch-up. Sample budget $20 each.'},
-  {id:'demo-5', name:'Sample · Night Garden', category:'bar', neighborhood:'East Village', price:45, tags:['fun','group'], note:'Fictional example. Cocktails and music for a fun evening with a group. Sample budget $45 each.'},
-  {id:'demo-6', name:'Sample · Paper Trail', category:'shop', neighborhood:'SoHo', price:null, tags:[], note:'Fictional example. A small book and stationery shop for browsing together.'}
-].map(place => Object.freeze({...place, tags:Object.freeze(place.tags), status:'not specified', recommended:false, inGuide:true, listName:'Fictional sample guide', source:'Fictional example', inferredTags:[]}));
+  {
+    id:'demo-1', name:'Via Carota', category:'restaurant', neighborhood:'West Village',
+    address:'51 Grove St, Manhattan', description:'Italian restaurant serving seasonal dishes in the West Village.',
+    website:'https://www.viacarota.com/',
+    photo:{
+      file:'via-carota.jpg', author:'Jim.henderson', license:'CC BY-SA 4.0',
+      source:'https://commons.wikimedia.org/wiki/File:Via_Carota_2023_jeh.jpg',
+      licenseURL:'https://creativecommons.org/licenses/by-sa/4.0/'
+    }
+  },
+  {
+    id:'demo-2', name:'Caffè Dante', category:'bar', neighborhood:'Greenwich Village',
+    address:'79–81 MacDougal St, Manhattan', description:'Historic Greenwich Village café and aperitivo bar with cocktails and Italian food.',
+    website:'https://www.dante-nyc.com/location/dante-nyc/',
+    photo:{
+      file:'caffe-dante.jpg', author:'Billie Grace Ward', license:'CC BY 2.0',
+      source:'https://www.flickr.com/photos/wwward0/6820088678/',
+      licenseURL:'https://creativecommons.org/licenses/by/2.0/'
+    }
+  },
+  {
+    id:'demo-3', name:'Devoción Williamsburg', category:'cafe', neighborhood:'Williamsburg',
+    address:'148 Grand St, Brooklyn', description:'Coffee shop serving Colombian coffee roasted in Brooklyn.',
+    website:'https://www.devocion.com/pages/new-york-coffee-shop-williamsburg-brooklyn'
+  },
+  {
+    id:'demo-4', name:'Brooklyn Bridge Park, Pier 1', category:'other', typeLabel:'Park', neighborhood:'DUMBO',
+    address:'Old Fulton St at Furman St, Brooklyn', description:'East River waterfront park with lawns and views of the Brooklyn Bridge and Lower Manhattan.',
+    website:'https://brooklynbridgepark.org/places-to-see/pier-1/',
+    photo:{
+      file:'pier-1.jpg', author:'Tdorante10', license:'CC BY-SA 4.0',
+      source:'https://commons.wikimedia.org/wiki/File:Brooklyn_Bridge_Park_td_(2019-08-23)_015_-_Pier_1,_Bridge_View_Lawn.jpg',
+      licenseURL:'https://creativecommons.org/licenses/by-sa/4.0/'
+    }
+  }
+].map(place => Object.freeze({
+  ...place,
+  url:'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place.name + ', ' + place.address),
+  price:null, note:'', tags:Object.freeze([]), status:'not specified', recommended:false, inGuide:true
+}));

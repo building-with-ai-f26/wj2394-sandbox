@@ -157,23 +157,24 @@
     <section id="live-demo">
       <h2>Product Showcase (Prototype / Live App / 2-Min Video)</h2>
       <p>
-        <strong>Build 2 · Reviewed November 16, 2026.</strong> Describe a plan in chat, search saved places with Google details and AI explanations, and choose a private account guide or an approved friend's guide.<br />
-        <a class="btn" href="prototype/" data-analytics-link="prototype">Open the Inner Table. prototype</a>
+        <strong>Build 3 · Reviewed November 22, 2026.</strong> Describe a plan in chat, search saved places with Google details and AI explanations, and choose a private account guide or an approved friend’s guide.<br />
+        <a class="btn" href="https://inner-table-demo.onrender.com/prototype/" data-analytics-link="prototype">Open the live Inner Table. demo</a>
+        <a class="btn btn-secondary" href="prototype/" data-analytics-link="prototype">Open the static prototype</a>
       </p>
-      <p>GitHub Pages opens the static interface and browser-stored guide. To use AI planning, Google lookups, shared-list import and accounts, run <code>python server.py --port 8001</code> from the repository folder and open <code>http://127.0.0.1:8001/prototype/</code> on that computer. The optional services need the builder's local configuration. Public backend hosting is pending.</p>
+      <p>The Render demo serves AI planning, Google lookups, shared-list import and accounts. GitHub Pages serves the static interface for browsing and device-stored guides. The demo and local prototype have separate browser storage.</p>
       <p class="meta">
-        Current prototype captured November 16, 2026. The chat contains an example plan in an empty device guide. Profile and Friends screens appear in the Build 2 log.
+        The November 22, 2026 prototype puts shared Maps links and Takeout CSV files inside Add a place. The NYC sample guide uses real venues and public photos with credits.
       </p>
       <figure style="margin: 20px 0 0;">
-        <a href="assets/build-2-discover-current.jpg"><img src="assets/build-2-discover-current.jpg" alt="Current Inner Table chat composer with an example catch-up plan and navigation" width="710" height="685" style="display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px;" /></a>
-        <figcaption class="meta" style="margin-top: 8px;">Build 2 · Current chat composer · November 16, 2026. Example prompt before sending, with an empty guide.</figcaption>
+        <a href="assets/build-4-add-a-place.png"><img src="assets/build-4-add-a-place.png" alt="Add a place on mobile with Import a list selected and Google Maps shared link and Google Takeout CSV choices" width="376" height="670" style="display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px;" /></a>
+        <figcaption class="meta" style="margin-top: 8px;">November 22 · Add a place in a phone viewport using public NYC venue data.</figcaption>
       </figure>
     </section>
 
     <!-- LIVING PRD (Updated every week!) -->
     <section id="prd">
       <h2>Living PRD (Product Requirements Document)</h2>
-      <p class="meta">PRD v2 · Reviewed November 16, 2026. Outside-user testing remains pending.</p>
+      <p class="meta">PRD v3 · Reviewed November 22, 2026. Outside-user testing remains pending.</p>
 
       <h3>1. Target User & The Job to Be Done</h3>
       <p><strong>Who is this for?</strong> A friend planning an outing in NYC who wants recommendations from someone whose taste they trust. Dinner is the starting point. Bars, coffee shops and other saved places can be included too.</p>
@@ -183,18 +184,20 @@
       <h3>2. Scope & Explicit Non-Goals</h3>
       <ul>
         <li><strong>In Scope (Core Workflow)</strong> Add Maps links, import a Takeout Saved-list CSV, or import a list shared for signed-out viewing. Confirm one bulk preview and explore the places immediately. All categories and uncategorized pins are eligible. Optional Google Places lookups provide available categories, photos, descriptions, price ranges and a limited review sample. Chat uses OpenRouter to interpret the plan and rank supplied guide places. Inferred tags stay labeled. Inclusion, personal endorsement and visit status have separate controls.</li>
-        <li><strong>Private guides</strong> Device imports stay in browser storage until I explicitly copy them to my account. Accounts support profiles and private account guides. A friend requests access by exact username, and the guide owner approves or removes access. Approved friends can search visible places. Hidden entries are excluded. A two-account interface rehearsal is still pending.</li>
+        <li><strong>Private guides</strong> Device imports stay in browser storage until I explicitly copy them to my account. A reader can look up a profile by exact username and request access. The owner can approve or remove access. Approved readers can search visible places and see the owner’s optional profile photo and bio. Hidden entries are excluded. The flow passed a browser rehearsal with two test accounts and simulated provider responses. The hosted access-denial rehearsal remains pending.</li>
         <li><strong>Out of Scope #1</strong> Automatic access to private Google Maps saves and continuous sync. Google sign-in authenticates an Inner Table. account. The future Connect Google import needs a separate supported authorization flow and eligibility review. CSV and shared-list links provide the current import paths. Google's saved-data schema and account eligibility guidance describe a possible future route. <a href="https://developers.google.com/data-portability/schema-reference/save">Google saved-data documentation</a> · <a href="https://support.google.com/accounts/answer/14452558">Google account eligibility guidance</a></li>
         <li><strong>Out of Scope #2</strong> Verified live prices, opening hours, reservations and booking availability. Google content and AI suggestions can be incomplete, and important requirements need confirmation with the venue.</li>
-        <li><strong>Out of Scope #3</strong> Public backend hosting, multi-city discovery and specialized booking, shopping or nightlife integrations. NYC remains the pilot scope.</li>
+        <li><strong>Out of Scope #3</strong> Multi-city discovery and specialized booking, shopping or nightlife integrations. NYC remains the pilot scope.</li>
       </ul>
 
       <h3>3. How It Works Under the Hood & Riskiest Assumption (Week 2+)</h3>
       <p><strong>Riskiest Assumption</strong> Messy saved pins, personal notes and a small review sample contain enough context to answer a friend's real plan. An imported save alone does not establish a personal recommendation or visit.</p>
       <p><strong>Planned test</strong> Ask friends to describe an outing they are actually planning, try a trusted guide and identify a place they would consider. Record whether the shortlist fits, which explanation helped, and how much cleanup was needed. Review empty results and follow-up changes. This test is pending.</p>
-      <p><strong>Simple Architecture</strong> The HTML/CSS/JavaScript interface stores device guides locally. Explicit account copying sends a guide through the local Python server to Supabase, where raw guide rows are owner-only. Approved followers read visible places through a permission-checked database function. Each friend-guide AI request rechecks access. For a plan, the server retrieves candidates, fetches available Google evidence and asks OpenRouter to rank supplied guide IDs. The browser renders explanations and available photos. Google content stays session-only. Provider keys stay in the local environment.</p>
+      <p><strong>Simple Architecture</strong> The interface stores device guides locally. Explicit account copying sends a guide through the Python backend to Supabase, where raw guide rows are owner-only. Approved followers read shown places through a permission-checked function. Each friend-guide AI request rechecks access. The backend limits provider requests and keeps provider keys in server configuration. Google photo data stays in browser memory. GitHub Actions publishes the product page, and the Render app serves the HTTPS demo.</p>
+      <p><strong>Open issue · Venue photo reliability · November 22, 2026.</strong> The builder reported that venue thumbnails sometimes fail to appear, including in friends’ shortlists. One local test reached the Google Places request limit and blocked further photo lookups. Check photo coverage on personal and approved friend guides, and verify recovery after a paused check or failed image load.</p>
 
       <h3>4. Unit Economics & Analytics Snapshot (Updated Weekly)</h3>
+      <p class="meta"><strong>Reviewed November 22, 2026 · Build 3.</strong> From November 16 at 9:33 a.m. through November 22 at 1:54 a.m. New York time, the available local ledgers recorded $0.04258 in OpenRouter costs across 61 successful calls, including model comparisons. Adding the approved estimated, pre-tax $4.62 ChatGPT Plus allocation gives a known subtotal of approximately $4.66 and a cumulative known total of approximately $13.93. The ledgers record 40 successful Google Places requests in this period. Current Google charges and unmeasured hosted usage are excluded from the subtotal. Builder hours await reconciliation.</p>
       <p class="meta">Reviewed November 16, 2026. Known Build 2 costs total approximately $4.65, combining $0.0315225 in recorded OpenRouter usage with the approved $4.62 estimated, pre-tax ChatGPT Plus allocation ($20 × 12 ÷ 52). Google Cloud currently displays $0.00 for November 1–16, subject to delayed charges. The cumulative known build cost is approximately $9.27 including Build 1's approved $4.62 estimate. Totals cover recorded API usage and approved subscription allocations, with additional charges added when available. Build 1's approved time estimate remains approximately 5 hours from the November 8–9 commit window. Build 2 hours await reconciliation.</p>
       <p>For November 9 through November 16 at 9:33 a.m. New York time, PostHog recorded 31 prototype pageviews, 18 fixed-control clicks, 92 view-open events and 9 form submissions. Seven local session recordings were available. These were local tests. After publishing on November 16, a browser check also confirmed public report and prototype pageviews, the demo-button click and a public session recording. The recording's visual masking review remains pending. All evidence so far comes from setup testing.</p>
       <p>For the same reporting window, the private runtime ledger contains 106 Google Maps requests (43 searches, 33 details requests and 30 photos) and 51 OpenRouter requests. Available responses report 235,476 tokens, with one request missing complete usage data. OpenRouter's usage endpoint confirmed $0.0315225 cumulative usage for the configured app key, matching the recorded subtotal. This averages approximately $0.00062 per recorded AI request. A complete plan can use multiple requests. Exact project-level coding-agent tokens are unavailable.</p>
@@ -206,7 +209,7 @@
       <div class="grid-2">
         <div class="stat-box">
           <div class="stat-label">Cumulative Build Spend</div>
-          <div class="stat-value">≈ $9.27 known costs</div>
+          <div class="stat-value">≈ $13.93 known costs</div>
           <p class="meta">Recorded API usage + approved subscription allocations</p>
         </div>
         <div class="stat-box">
@@ -267,11 +270,12 @@
       </div>
 
       <div class="log-entry">
-        <h3>Build 3 · Build.exe: The Core Workflow (Due Nov 23)</h3>
+        <h3>Build 3 · Go Live &amp; Security Audit (Due Nov 23)</h3>
         <ul>
-          <li><strong>What shipped:</strong> [End-to-end workflow working with real inputs + PostHog funnel events]</li>
-          <li><strong>What broke / changed in PRD:</strong> [Fill in]</li>
-          <li><strong>Cost & time this week:</strong> Spend and hours not yet recorded</li>
+          <li><strong>What changed</strong> This build adds Maps-list import inside Add a place, real NYC sample venues, photo status flags and an exact-username preview before following. The Friends migration adds optional profile photos and bios with approved-reader access. <a href="assets/build-4-friends.png">Friends phone preview with test accounts</a>.</li>
+          <li><strong>Verification</strong> 53 JavaScript and 40 Python checks passed. Isolated database tests covered pending, approved and revoked guide access. Chrome tests used simulated provider responses for the phone layout and two-account flow.</li>
+          <li><strong>Open evidence</strong> Venue thumbnails are intermittent. The hosted access-denial screenshot, live replay verification for this revision and independent phone testing remain pending.</li>
+          <li><strong>Cost &amp; time this week</strong> November 22 review. Approximately $4.66 known cost, including $0.04258 in recorded OpenRouter usage and $4.62 in estimated subscription allocation. Builder hours await reconciliation.</li>
         </ul>
       </div>
 

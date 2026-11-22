@@ -1,18 +1,35 @@
 /* Approved guides are read-only and stay in page memory. */
 function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}) {
   const $ = selector => document.querySelector(selector);
-  const findFriend = $('#circle-find');
-  const requestPanel = $('#circle-request');
+  const usernameInput = $('#friend-username');
+  const previewPanel = $('#friend-preview');
+  const lookupButton = $('#friend-lookup');
   let signedIn = false;
   let selected = null;
+  let preview = null;
   let busy = false;
   let generation = 0;
-  let connections = {following:[], outgoing:[], requests:[], followers:[]};
+  let sessionRevision = 0;
+  let lookupRevision = 0;
+  const emptyConnections = () => ({following:[],outgoing:[],requests:[],followers:[]});
+  let connections = emptyConnections();
+  const controls = new Map();
+  const username = () => usernameInput.value.trim().replace(/^@/,'').toLowerCase();
   function say(message) {$('#friends-status').textContent = message;}
+  function node(tag,text='',className='') {
+    const element = document.createElement(tag);
+    element.textContent = text;
+    element.className = className;
+    return element;
+  }
   async function request(route, body = {}) {
     const response = await fetch('/api/account/' + route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const result = await response.json();
-    if(!response.ok) {const error = new Error(result.error || 'Friends could not be loaded.');error.status = response.status;throw error;}
+    if(!response.ok) {
+      const error = new Error(result.error || 'Friends could not be loaded.');
+      error.status = response.status;
+      throw error;
+    }
     return result;
   }
   function leave(message = '') {
@@ -22,142 +39,277 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
     $('#friend-access-status').textContent = message;
     render();
   }
+  function addAction(container,key,label,handler,primary=false) {
+    const button = node('button',label,primary?'secondary':'text-button');
+    button.type = 'button';
+    button.dataset.friendAction = key;
+    button.onclick = handler;
+    controls.set(key,button);
+    container.append(button);
+  }
+  function personRow(person, showDetails) {
+    const row = node('div','','friend-row');
+    const identity = node('div','','friend-identity');
+    const avatar = node('span','','person-avatar');
+    avatar.setAttribute('aria-hidden','true');
+    renderPersonAvatar(avatar,showDetails ? person : {display_name:person.display_name,username:person.username});
+    const label = node('div','','person-label');
+    label.append(node('strong',person.display_name || person.username),node('span',`@${person.username}`));
+    if(showDetails && person.bio) label.append(node('p',person.bio,'friend-bio'));
+    identity.append(avatar,label);
+    const actions = node('div','','actions');
+    row.append(identity,actions);
+    return {row,actions};
+  }
+  function renderPreview() {
+    previewPanel.replaceChildren();
+    previewPanel.hidden = !preview;
+    if(!preview) return;
+    const approved = preview.connection_status==='approved';
+    const {row,actions} = personRow(preview,approved);
+    if(approved) {
+      addAction(actions,'preview:search','Search guide',()=>openGuide(preview.id),true);
+    } else if(preview.connection_status==='pending') {
+      actions.append(node('span','Requested','request-state'));
+      addAction(actions,'preview:cancel','Cancel request',()=>updateConnection(preview,'outgoing','unfollow','Request canceled.'));
+    } else {
+      addAction(actions,'preview:request','Request to follow',sendFollow,true);
+    }
+    previewPanel.append(row);
+  }
   function render() {
+    controls.clear();
     $('#friends-sign-in').hidden = signedIn;
     $('#friends-member').hidden = !signedIn;
-    findFriend.hidden = !signedIn;
+    $('#friends-refresh').hidden = !signedIn;
     $('#guide-person').textContent = selected ? `${selected.owner.display_name || selected.owner.username}’s guide` : 'My places';
     $('#occasion').placeholder = selected ? `Ask ${selected.owner.display_name || selected.owner.username}’s guide about your plan…` : 'Dinner with a friend, somewhere we can talk…';
+    $('#friend-requests-panel').hidden = !connections.requests.length && !connections.outgoing.length;
+    renderPreview();
     const groups = [
-      ['following','Guides you can read',[['Search guide','read'],['Unfollow','unfollow']]],
-      ['outgoing','Waiting for approval',[['Cancel request','unfollow']]],
-      ['requests','Requests to read your guide',[['Approve','approve'],['Decline','revoke']]],
-      ['followers','People who can read your guide',[['Remove access','revoke']]]
+      ['following','',[
+        ['Search guide','read',''],
+        ['Stop following','unfollow','You stopped following this guide.']
+      ]],
+      ['requests','Received',[
+        ['Approve request','approve','Request approved. They can read your visible places.'],
+        ['Decline','revoke','Request declined.']
+      ]],
+      ['outgoing','Sent',[
+        ['Cancel request','unfollow','Request canceled.']
+      ]],
+      ['followers','',[
+        ['Remove access','revoke','Access removed.']
+      ]]
     ];
     for(const [key,title,actions] of groups) {
       const list = $('#friends-' + key);
       list.replaceChildren();
-      const heading = document.createElement('h2');heading.textContent = title;list.append(heading);
-      if(!connections[key].length) {const empty = document.createElement('p');empty.className = 'small';empty.textContent = 'No one here yet.';list.append(empty);}
+      if(!connections[key].length) {
+        if(key==='following') list.append(node('p','Find a friend by their @username to request their guide.','friend-empty'));
+        if(key==='followers') list.append(node('p','Only you can read your guide right now.','friend-empty'));
+        continue;
+      }
+      if(title) list.append(node('h3',title));
       for(const person of connections[key]) {
-        const row = document.createElement('div');row.className = 'friend-row';
-        const identity = document.createElement('p');
-        identity.className = 'friend-identity';
-        const name = person.display_name || person.username;
-        const avatar = document.createElement('span');
-        avatar.className = 'person-avatar';
-        avatar.setAttribute('aria-hidden','true');
-        avatar.textContent = [...name.trim()][0]?.toUpperCase() || '';
-        const label = document.createElement('span');
-        label.className = 'person-label';
-        const display = document.createElement('strong');
-        display.textContent = name;
-        const handle = document.createElement('span');
-        handle.textContent = `@${person.username}`;
-        label.append(display,handle);
-        identity.append(avatar,label);
-        row.append(identity);
-        const buttons = document.createElement('div');buttons.className = 'actions';
-        for(const [label,route] of actions) {
-          const button = document.createElement('button');button.type = 'button';button.className = ['read','approve'].includes(route) ? 'secondary' : 'text-button';button.textContent = label;button.disabled = busy;
-          button.onclick = route === 'read' ? () => openGuide(person.id) : () => action(async () => {
-            await request(route,{id:person.id});
-            if(selected?.owner.id === person.id)leave();
-            say(route === 'approve' ? 'Access approved. They can read the places you show in your guide.' : 'Connection removed.');
-            await refresh();
-          });
-          buttons.append(button);
+        const item = personRow(person,key==='following');
+        if(key==='outgoing') item.actions.append(node('span','Requested','request-state'));
+        for(const [label,route,message] of actions) {
+          const handler = route==='read' ? ()=>openGuide(person.id) : ()=>updateConnection(person,key,route,message);
+          addAction(item.actions,`${key}:${person.id}:${route}`,label,handler,route==='read' || route==='approve');
         }
-        row.append(buttons);list.append(row);
+        list.append(item.row);
       }
     }
   }
+  async function refresh() {
+    if(!signedIn) return;
+    const context = generation;
+    const result = await request('connections');
+    if(context!==generation) return;
+    connections = result;
+    if(preview) {
+      const approved = result.following.find(person=>person.id===preview.id);
+      const pending = result.outgoing.some(person=>person.id===preview.id);
+      preview = approved ? {...approved,connection_status:'approved'} : {
+        id:preview.id,display_name:preview.display_name,username:preview.username,
+        connection_status:pending?'pending':'none'
+      };
+    }
+    onFollowing(connections.following);
+  }
+  async function action(work) {
+    if(busy || !signedIn) return;
+    const revision = sessionRevision;
+    busy = true;
+    lookupButton.disabled = true;
+    $('#friends-member').setAttribute('aria-busy','true');
+    const before = document.activeElement;
+    const key = before?.dataset?.friendAction;
+    let focus;
+    try {focus = await work();}
+    catch(error) {
+      if(revision===sessionRevision) say(error instanceof SyntaxError ? 'Friends need the Inner Table server.' : error.message);
+    }
+    finally {
+      if(revision!==sessionRevision) return;
+      busy = false;
+      lookupButton.disabled = false;
+      $('#friends-member').removeAttribute('aria-busy');
+      const restore = before===document.activeElement || document.activeElement===document.body;
+      render();
+      if(focus && (restore || focus==='#discover-title')) $(focus).focus();
+      else if(key && restore && !$('#friends-view').hidden) {
+        (controls.get(key) || (key.startsWith('preview:') && !previewPanel.hidden ? previewPanel : usernameInput)).focus();
+      }
+    }
+  }
+  async function updateConnectionsAfter(message) {
+    say(message);
+    try {await refresh();}
+    catch {say(message + ' Refresh connections to see the latest changes.');}
+  }
+  function updateConnection(person,group,route,message) {
+    return action(async () => {
+      const context = generation;
+      await request(route,{id:person.id});
+      if(context!==generation) return;
+      connections[group] = connections[group].filter(item=>item.id!==person.id);
+      if(route==='approve') connections.followers = [...connections.followers,person];
+      if(route==='unfollow' && preview?.id===person.id) {
+        preview = {id:person.id,display_name:person.display_name,username:person.username,connection_status:'none'};
+      }
+      if(route==='unfollow' && selected?.owner.id===person.id) leave();
+      await updateConnectionsAfter(message);
+    });
+  }
+  function sendFollow() {
+    if(!preview || preview.connection_status!=='none' || preview.username!==username()) return;
+    return action(async () => {
+      const person = preview;
+      const revision = lookupRevision;
+      const context = generation;
+      let result;
+      try {
+        result = await request('follow',{username:person.username,expected_id:person.id});
+      } catch(error) {
+        if(error.status===404 && revision===lookupRevision) preview = null;
+        throw error;
+      }
+      if(context!==generation) return;
+      if(!result.approved && !connections.outgoing.some(item=>item.id===person.id)) {
+        connections.outgoing = [person,...connections.outgoing];
+      }
+      if(revision===lookupRevision) preview = {...person,connection_status:result.approved?'approved':'pending'};
+      await updateConnectionsAfter(result.approved ? 'You can already search this guide.' : 'Request sent.');
+      if(revision===lookupRevision && !$('#friends-view').hidden) return '#friend-preview';
+    });
+  }
   function openGuide(ownerId) {
-    if(!signedIn || !connections.following.some(person => person.id === ownerId))return;
+    const verified = connections.following.some(person=>person.id===ownerId) ||
+      (preview?.id===ownerId && preview.connection_status==='approved');
+    if(!signedIn || !verified) return;
     return action(async () => {
       const context = generation;
       try {
         await beforeSwitch();
-        if(context !== generation || !signedIn)return;
+        if(context!==generation || !signedIn) return;
         const guide = await request('friend-guide',{ownerId});
-        if(context !== generation || !signedIn)return;
+        if(context!==generation) return;
         selected = guide;
         onSelect(selected);
         $('#friend-access-status').textContent = '';
-        if(document.querySelector('#discover-view').hidden)document.querySelector('[data-view="discover"]').click();
+        if($('#discover-view').hidden) $('[data-view="discover"]').click();
+        return '#discover-title';
       } catch(error) {
-        if(context !== generation)return;
-        if(error.status === 401 || error.status === 403) {
-          if(selected?.owner.id === ownerId)leave();
+        if(context!==generation) return;
+        if(error.status===401 || error.status===403) {
+          if(selected?.owner.id===ownerId) leave();
           $('#friend-access-status').textContent = 'That guide is no longer available. Choose another guide or open My places.';
           await refresh();
           return;
         }
-        $('#friend-access-status').textContent = 'Could not open that guide. Try again.';
         throw error;
       }
     });
   }
-  async function refresh() {
-    if(!signedIn)return;
-    const context = generation;
-    const result = await request('connections');
-    if(context !== generation)return;
-    connections = result;
-    onFollowing(connections.following);
-    render();
-  }
-  async function action(work) {
-    if(busy)return;
-    busy = true;render();
-    try {await work();}
-    catch(error) {say(error instanceof SyntaxError ? 'Friends need the local Inner Table server.' : error.message);}
-    finally {busy = false;render();}
-  }
   function setSession(value) {
-    if(value === signedIn)return;
+    if(value===signedIn) return;
+    sessionRevision++;
     generation++;
     signedIn = value;
-    if(signedIn)return action(refresh);
-    requestPanel.hidden = true;
-    findFriend.setAttribute('aria-expanded','false');
-    connections = {following:[],outgoing:[],requests:[],followers:[]};
+    if(signedIn) {
+      render();
+      return action(refresh);
+    }
+    preview = null;
+    lookupRevision++;
+    busy = false;
+    lookupButton.disabled = false;
+    $('#friends-member').removeAttribute('aria-busy');
+    usernameInput.value = '';
+    connections = emptyConnections();
     onFollowing(connections.following);
     leave();
-    render();
   }
-  findFriend.addEventListener('click', () => {
-    requestPanel.hidden = !requestPanel.hidden;
-    findFriend.setAttribute('aria-expanded',String(!requestPanel.hidden));
-    if(!requestPanel.hidden)$('#friend-username').focus();
+  previewPanel.tabIndex = -1;
+  usernameInput.addEventListener('input', () => {
+    lookupRevision++;
+    preview = null;
+    say('');
+    renderPreview();
   });
   $('#friend-request-form').addEventListener('submit',event => {
     event.preventDefault();
-    action(async () => {
-      const username = $('#friend-username').value.trim().replace(/^@/,'').toLowerCase();
-      const result = await request('follow',{username});
-      say(result.approved ? 'You already have access to this guide.' : 'Request sent. Their guide opens after they approve you.');
-      await refresh();
+    return action(async () => {
+      const query = username();
+      const revision = ++lookupRevision;
+      const context = generation;
+      preview = null;
+      say('Finding profile…');
+      let person;
+      try {person = await request('find-friend',{username:query});}
+      catch(error) {
+        if(context===generation && revision===lookupRevision) throw error;
+        return;
+      }
+      if(context!==generation || revision!==lookupRevision || query!==username()) return;
+      preview = person;
+      say('');
+      if(!$('#friends-view').hidden) return '#friend-preview';
     });
   });
-  $('#friends-refresh').addEventListener('click',() => action(refresh));
-  $('#use-my-guide').addEventListener('click',() => {
-    if(selected)leave();
+  $('#friends-refresh').addEventListener('click', () => action(async () => {
+    await refresh();
+    say('Connections refreshed.');
+  }));
+  $('#use-my-guide').addEventListener('click', () => {
+    if(selected) leave();
     const picker = $('#guide-picker');
     picker.open = false;
     picker.querySelector('summary').focus();
   });
   window.addEventListener('focus',async () => {
-    if(!selected)return;
+    if(!selected) {
+      if(!$('#friends-view').hidden) return action(refresh);
+      return;
+    }
     const ownerId = selected.owner.id, context = generation;
     try {
       const updated = await request('friend-guide',{ownerId});
-      if(context !== generation || selected?.owner.id !== ownerId)return;
-      if(JSON.stringify(updated) !== JSON.stringify(selected)) {selected = updated;onSelect(selected);render();}
+      if(context!==generation || selected?.owner.id!==ownerId) return;
+      if(JSON.stringify(updated)!==JSON.stringify(selected)) {
+        selected = updated;
+        onSelect(selected);
+        render();
+      }
     } catch(error) {
-      if(context === generation && selected?.owner.id === ownerId && (error.status === 401 || error.status === 403))leave('This friend’s guide is no longer available. You are back in your own guide.');
+      if(context===generation && selected?.owner.id===ownerId && (error.status===401 || error.status===403)) {
+        leave('This friend’s guide is no longer available. You are back in your own guide.');
+        await action(refresh);
+      }
     }
   });
   render();
-  return {setSession,leave,openGuide,getOwner:()=>selected?.owner || null};
+  return {setSession,leave,openGuide,refresh:()=>action(refresh),getOwner:()=>selected?.owner || null};
 }

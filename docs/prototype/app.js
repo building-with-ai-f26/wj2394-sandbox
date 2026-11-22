@@ -17,7 +17,7 @@ let devicePlaces = places;
 const google=GooglePlaces.createController({
   getPlaces:()=>[...places,...(friendGuide?.places || [])],
   onUpdate:()=>{renderSaved();renderDiscover();},
-  onLink:(place,id)=>{const current=places.find(p=>p.id===place.id);if(current){current.googlePlaceId=id;persist();}}
+  onLink:(place,id)=>{const current=places.find(p=>p.id===place.id && p.url===place.url);if(current && current.googlePlaceId!==id){current.googlePlaceId=id;persist();}}
 });
 function element(tag, className = '', text = '') {
   const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
@@ -25,18 +25,45 @@ function element(tag, className = '', text = '') {
 function button(text, handler, className = 'secondary') {
   const node = element('button',className,text); node.type = 'button'; node.addEventListener('click',handler); return node;
 }
-function addPlacePhoto(row, place) {
-  const photo = google.photo(place);
-  if(!photo)return;
+function externalLink(text, url, className = '') {
+  const link = element('a',className,text);
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  return link;
+}
+function samplePhotoCredit(photo) {
+  const credit = element('p','photo-credit','Photo: ');
+  credit.append(externalLink(photo.author,photo.source),document.createTextNode(' · '),
+    externalLink(photo.license,photo.licenseURL));
+  return credit;
+}
+function addPlacePhoto(row, place, content) {
+  const sample = demoMode && place.photo;
+  const photo = sample ? 'artwork/' + sample.file : google.photo(place);
+  function flagMissingPhoto() {
+    if(GooglePlaces.importedPlace(place) || row.classList.contains('card')) {
+      content.append(element('p','photo-credit',google.photoStatus(place)));
+    }
+  }
+  if(!photo) {
+    flagMissingPhoto();
+    return;
+  }
   const image = element('img','place-photo');
+  const credit = sample ? samplePhotoCredit(sample) : google.photoCredit(place);
   image.src = photo;
-  image.alt = `Google Maps photo of ${place.name}`;
+  image.alt = place.name;
   image.loading = 'lazy';
   image.addEventListener('error', () => {
     image.remove();
+    credit?.remove();
     row.classList.remove('has-photo');
-  });
+    if(!sample) google.rejectPhoto(place,photo);
+    flagMissingPhoto();
+  }, {once:true});
   row.prepend(image);
+  if(credit) content.append(credit);
   row.classList.add('has-photo');
 }
 function persist() {
@@ -51,6 +78,7 @@ function showView(view) {
   $('#discover-view').hidden = view !== 'discover'; $('#places-view').hidden = view !== 'places'; $('#account-view').hidden = view !== 'account'; $('#friends-view').hidden = view !== 'friends';
   document.querySelectorAll('nav [data-view]').forEach(node => {node.classList.toggle('active',node.dataset.view === view); if(node.dataset.view === view) node.setAttribute('aria-current','page'); else node.removeAttribute('aria-current');});
   if (view === 'discover') renderDiscover(); else if(view === 'places') renderSaved();
+  else if(view === 'friends') friends?.refresh();
   window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
 }
 document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click',() => showView(node.dataset.view)));
@@ -81,6 +109,7 @@ const planChat = createPlanChat({
   onResults: result => {
     planResults = result;
     $('#shortlist-feedback-status').textContent = '';
+    if(!demoMode) google.checkShortlistPhotos(result?.matches.map(match=>match.id) || []);
     renderDiscover();
   }
 });
@@ -92,6 +121,7 @@ function renderDiscover() {
   $('#demo-notice').hidden = !demoMode;
   $('#guide-picker').hidden = demoMode;
   const results = $('#results');
+  const expanded = new Set([...results.querySelectorAll('.place-more[open]')].map(detail=>detail.parentElement.dataset.placeId));
   results.replaceChildren();
   const hasReply = planResults !== null;
   const showPlaces = hasReply || demoMode;
@@ -119,7 +149,7 @@ function renderDiscover() {
     outcome.recognized = true;
     outcome.unsupported = false;
   }
-  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'Fictional sample guide' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
+  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'NYC sample guide' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
     const noPersonal = !data.length && !friendGuide;
@@ -136,44 +166,43 @@ function renderDiscover() {
   }
   outcome.matches.forEach(({place,reasons}) => {
     const card = element('article','card');
-    if(!demoMode)addPlacePhoto(card,place);
+    card.dataset.placeId = place.id;
     const body = element('div','card-body');
-    const metadata = [I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price == null ? '' : `~$${place.price} per person`].filter(Boolean);
+    const metadata = [place.typeLabel || I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price == null ? '' : `~$${place.price} per person`].filter(Boolean);
     if(!demoMode)body.append(element('p','card-source',friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
-    body.append(element('h3','',demoMode ? place.name.replace(/^Sample · /,'') : place.name),element('p','place-meta',metadata.join(' · ')));
-    if(demoMode && place.note)body.append(element('p','card-source','Sample note'));
-    if(place.note) body.append(element('blockquote','note',demoMode ? place.note.replace(/^Fictional example\. /,'') : place.note));
+    body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
+    if(demoMode) body.append(element('p','sample-description',place.description));
+    if(place.note) body.append(element('blockquote','note',place.note));
 
+    addPlacePhoto(card,place,body);
     card.append(body);
-    if(planResults || !demoMode) {
-      const detail = element('details','place-more');
-      detail.append(element('summary','','Place details'));
-      if(planResults) {
-        const fit = element('section','reason');
-        fit.append(element('h4','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
-        detail.append(fit);
-      }
-      if(!demoMode) {
-        detail.append(element('p','place-provenance',place.recommended
-          ? 'Personally recommended'
-          : `${place.listName ? 'Saved list: ' + place.listName : 'Saved place'} · Not personally endorsed`));
-        const tags = element('div','tags');
-        tags.append(element('span','visit-status',`Visit status: ${I.visitLabel(place.status)}`));
-        place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag) ? 'Google review hint: ' : (place.inferredTags || []).includes(tag) ? 'Suggested: ' : '') + (tag === 'conversation' ? 'good for talking' : tag))));
-        detail.append(tags);
-        const extra = google.extras(place);
-        if(extra) detail.append(extra);
-        const url = I.mapsURL(place.url);
-        if(url) {
-          const link = element('a','place-map','Open in Maps');
-          link.href = url;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          detail.append(link);
-        }
-      }
-      card.append(detail);
+    const detail = element('details','place-more');
+    detail.open = expanded.has(String(place.id));
+    detail.append(element('summary','','Place details'));
+    if(planResults) {
+      const fit = element('section','reason');
+      fit.append(element('h4','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
+      detail.append(fit);
     }
+    const links = element('div','place-links');
+    if(demoMode) {
+      detail.append(element('p','small',place.address));
+      links.append(externalLink('Official website',place.website,'place-map'));
+    } else {
+      detail.append(element('p','place-provenance',place.recommended
+        ? 'Personally recommended'
+        : `${place.listName ? 'Saved list: ' + place.listName : 'Saved place'} · Not personally endorsed`));
+      const tags = element('div','tags');
+      tags.append(element('span','visit-status',`Visit status: ${I.visitLabel(place.status)}`));
+      place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag) ? 'Google review hint: ' : (place.inferredTags || []).includes(tag) ? 'Suggested: ' : '') + (tag === 'conversation' ? 'good for talking' : tag))));
+      detail.append(tags);
+      const extra = google.extras(place);
+      if(extra) detail.append(extra);
+    }
+    const url = google.placeURL(place);
+    if(url) links.append(externalLink('Open in Maps',url,'place-map'));
+    detail.append(links);
+    card.append(detail);
     results.append(card);
   });
 }
@@ -181,6 +210,14 @@ $('#show-shortlist').addEventListener('click', () => $('#shortlist-heading').foc
 $('#back-to-plan').addEventListener('click', () => $('#occasion').focus());
 $('#search-form').addEventListener('submit',event => {event.preventDefault();planChat.submit();});
 document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;$('#occasion').focus();}));
+for(const starter of document.querySelectorAll('[data-sample-image]')) {
+  const place = InnerTableDemo.find(place => place.id === starter.dataset.sampleImage);
+  const image = element('img');
+  image.src = 'artwork/' + place.photo.file;
+  image.alt = '';
+  starter.prepend(image);
+  starter.after(samplePhotoCredit(place.photo));
+}
 $('#reset').addEventListener('click',() => {planChat.reset();HTMLFormElement.prototype.reset.call($('#search-form'));renderDiscover();$('#occasion').focus();});
 function changed() {if(demoMode)setDemoMode(false);persist();renderSaved();renderDiscover();}
 function updateSelection() {
@@ -227,11 +264,14 @@ function renderSaved() {
   $('#queue-summary').textContent = `${places.length} saved · ${readyCount} in your guide · ${places.filter(p=>p.recommended).length} personally recommended · ${places.length-readyCount} hidden from suggestions`;
   $('#export-places').disabled = !places.length;
   $('#show-all-in-guide').disabled = readyCount === places.length;
-  const list=$('#my-places');list.replaceChildren();
+  const list=$('#my-places');
+  const expanded = new Set([...list.querySelectorAll('.saved-place-actions[open]')].map(detail=>detail.parentElement.dataset.placeId));
+  list.replaceChildren();
   updateSelection();
-  if(!places.length) {const empty=element('div','empty');empty.append(element('h3','','Start with a place you’d tell a friend about.'),element('p','','Add a Maps link above, or bring over an unzipped saved-list CSV. You can sort out the messy pins here.'));list.append(empty);return;}
+  if(!places.length) {const empty=element('div','empty');empty.append(element('h3','','No saved places yet'),element('p','','Add one place or bring over a Google Maps list.'));list.append(empty);return;}
   places.forEach(place => {
     const row=element('article','saved-row'), content=element('div');
+    row.dataset.placeId = place.id;
     const enriched=google.merge(place);
     const selection = element('label','place-selection');
     const checkbox = element('input');
@@ -249,7 +289,7 @@ function renderSaved() {
     content.append(element('h3','',place.name),element('p','',`${I.categoryLabel(enriched.category)}${enriched.googleCategoryUsed?' (Google)':''} · ${place.neighborhood || 'Neighborhood unknown'} · ${I.visitLabel(place.status)}`));
     if(place.note) content.append(element('p','',place.note));
     content.append(element('p','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
-    const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';content.append(link);
+    const link=externalLink('Open in Maps ↗',google.placeURL(place));content.append(link);
     const actions=element('div','actions');actions.append(button('Edit',()=>openEditor(place)),button(I.ready(place)?'Hide place':'Show in guide',()=>{place.inGuide=!I.ready(place);changed();}),button('Remove',()=>{
       if(!window.confirm(`Remove “${place.name}” from this browser?`)) return;
       google.forget(place.id);places=places.filter(p=>p.id!==place.id);if($('#place-id').value===place.id) closeEditor();changed();
@@ -257,17 +297,61 @@ function renderSaved() {
     if(place.googlePlaceId)actions.append(button('Change Google match',()=>google.rematch(place),'text-button'));
     const extra=google.extras(place);if(extra)content.append(extra);
     const manage = element('details','saved-place-actions');
+    manage.open = expanded.has(String(place.id));
     const summary = element('summary','','Manage');
     summary.setAttribute('aria-label',`Manage ${place.name}`);
     manage.append(summary,selection,element('p','small',I.ready(place) ? 'In your guide' : 'Hidden from your guide'),actions);
     row.append(content,manage);
-    addPlacePhoto(row,place);
+    addPlacePhoto(row,place,content);
     list.append(row);
   });
 }
-function closeEditor() {$('#place-editor').close();$('#place-editor').hidden=true;$('#place-form').reset();$('#place-id').value='';$('#editor-error').textContent='';}
+let sharedListRequest = null;
+function stopSharedList() {
+  sharedListRequest?.abort();
+  sharedListRequest = null;
+  $('#maps-list-import').disabled = false;
+  $('#maps-list-status').textContent = '';
+}
+function chooseImportMethod(method) {
+  const csv = method === 'csv';
+  if(csv) stopSharedList();
+  else $('#csv-file').value = '';
+  $('#import-by-link').setAttribute('aria-pressed',String(!csv));
+  $('#import-by-csv').setAttribute('aria-pressed',String(csv));
+  $('#maps-list-panel').hidden = csv;
+  $('#csv-panel').hidden = !csv;
+  $('#csv-import-status').textContent = '';
+}
+function chooseAddMode(mode) {
+  const importing = mode === 'import';
+  if(!importing) {
+    stopSharedList();
+    $('#csv-file').value = '';
+  }
+  $('#add-one').setAttribute('aria-pressed',String(!importing));
+  $('#add-import').setAttribute('aria-pressed',String(importing));
+  $('#place-form').hidden = importing;
+  $('#list-import').hidden = !importing;
+}
+function closeEditor() {
+  $('#place-editor').close();
+  $('#place-editor').hidden = true;
+  $('#place-form').reset();
+  $('#place-id').value = '';
+  $('#editor-error').textContent = '';
+  $('#maps-list-form').reset();
+  $('#restore-file').value = '';
+  stopSharedList();
+  clearPreview();
+}
 function openEditor(place) {
-  closeEditor();$('#place-editor').hidden=false;$('#editor-title').textContent=place ? 'Edit your place' : 'Add a place';
+  closeEditor();
+  $('#add-options').hidden = !!place;
+  $('#place-optional').open = !!place;
+  chooseAddMode('one');
+  chooseImportMethod('link');
+  $('#place-editor').hidden=false;$('#editor-title').textContent=place ? 'Edit your place' : 'Add a place';
   $('#inferred-info').textContent=place && (place.inferredTags || []).length ? 'Some selected tags were suggested from saved note or list keywords. You can change them below.' : '';
   if(place) {
     for(const [field,key] of [['id','id'],['name','name'],['url','url'],['category','category'],['neighborhood','neighborhood'],['visited','status'],['note','note'],['price','price']]) $('#place-'+field).value=place[key] ?? '';
@@ -279,6 +363,10 @@ function openEditor(place) {
 }
 $('#place-editor').addEventListener('cancel',event=>{event.preventDefault();closeEditor();});
 $('#show-add').addEventListener('click',()=>openEditor());$('#cancel-edit').addEventListener('click',closeEditor);
+$('#add-one').addEventListener('click',()=>chooseAddMode('one'));
+$('#add-import').addEventListener('click',()=>chooseAddMode('import'));
+$('#import-by-link').addEventListener('click',()=>chooseImportMethod('link'));
+$('#import-by-csv').addEventListener('click',()=>chooseImportMethod('csv'));
 $('#place-form').addEventListener('submit',event=>{
   event.preventDefault();const error=$('#editor-error');error.textContent='';
   const url=I.mapsURL($('#place-url').value);
@@ -299,23 +387,58 @@ $('#place-form').addEventListener('submit',event=>{
   closeEditor();changed();$('#import-status').textContent='Place saved. Your changes are reflected in Discover.';
 });
 function showPreview(result, kind) {
-  pending={...result,kind};const count=result.places.length;
-  $('#import-preview').hidden=false;$('#import-summary').textContent=`${count} places ready to ${kind==='backup'?'restore':'add to your guide'} · ${result.duplicates} duplicates skipped · ${result.skipped} invalid or non-Maps rows skipped.`;
+  pending={...result,kind,guide:places};const count=result.places.length;
+  $('#add-options').hidden=true;
+  $('#place-form').hidden=true;
+  $('#list-import').hidden=true;
+  $('#import-preview-error').textContent='';
+  $('#import-preview').hidden=false;$('#import-summary').textContent=`${count} ${count===1?'place':'places'} ready to ${kind==='backup'?'restore':'add to your guide'}. ${importCounts(result)}`;
   $('#confirm-import').textContent=kind==='backup'?'Restore these places':'Add to my guide';$('#confirm-import').disabled=!count;
+  $('#cancel-import').textContent=kind==='backup'?'Cancel':'Back';
   const list=$('#import-items');list.replaceChildren();
   result.places.slice(0,100).forEach(place=>{const row=element('div','preview-item');row.append(element('strong','',place.name),element('p','',place.note || 'No personal note yet.'),element('p','',place.url));list.append(row);});
   if(count>100) list.append(element('p','small',`Showing the first 100 of ${count} places. All valid places will be added.`));
-  $('#import-preview').scrollIntoView({behavior:'smooth'});
+  if(kind==='backup') {
+    $('#editor-title').textContent='Restore backup';
+    $('#place-editor').hidden=false;
+    $('#place-editor').showModal();
+  }
+  $('#import-title').focus();
 }
-function cancelImport() {pending=null;$('#import-preview').hidden=true;$('#csv-file').value='';$('#restore-file').value='';}
-$('#cancel-import').addEventListener('click',cancelImport);
+function clearPreview() {
+  pending=null;
+  $('#import-preview').hidden=true;
+  $('#import-items').replaceChildren();
+  $('#csv-file').value='';
+}
+$('#cancel-import').addEventListener('click',()=>{
+  if(pending?.kind==='backup') {closeEditor();return;}
+  clearPreview();
+  $('#add-options').hidden=false;
+  chooseAddMode('import');
+  $('#csv-file').focus();
+});
 $('#csv-file').addEventListener('change',async event=>{
-  const file=event.target.files[0];cancelImport();$('#import-status').textContent='';if(!file) return;
-  try {if(file.size>2_000_000) throw new Error('Choose a CSV smaller than 2 MB.');showPreview(I.importCSV(await file.text(),places,file.name),'csv');}
-  catch(error) {$('#import-status').textContent=error.message;}
+  const file=event.target.files[0];
+  const status=$('#csv-import-status');
+  status.textContent='';
+  if(!file) return;
+  try {
+    if(file.size>2_000_000) throw new Error('Choose a CSV smaller than 2 MB.');
+    const contents=await file.text();
+    if(event.target.files[0]!==file) return;
+    showPreview(I.importCSV(contents,places,file.name),'csv');
+  } catch(error) {
+    if(event.target.files[0]!==file) return;
+    event.target.value='';
+    status.textContent=error.message;
+  }
 });
 $('#maps-list-form').addEventListener('submit', async event => {
   event.preventDefault();
+  if(sharedListRequest) return;
+  const request = new AbortController();
+  sharedListRequest = request;
   const targetGuide = places;
   const status = $('#maps-list-status');
   $('#maps-list-import').disabled = true;
@@ -323,37 +446,51 @@ $('#maps-list-form').addEventListener('submit', async event => {
   try {
     const response = await fetch('/api/import/maps-list', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: $('#maps-list-url').value.trim()})
+      body: JSON.stringify({url: $('#maps-list-url').value.trim()}), signal: request.signal
     });
     const data = await response.json();
+    if(sharedListRequest!==request) return;
     if(!response.ok) throw new Error(data.error || 'The list could not be imported. Try again.');
     if(places !== targetGuide) throw new Error('Your active guide changed. Import the link again into the guide you want.');
     const quote = value => '"' + value.replaceAll('"', '""') + '"';
     const csv = [['name','url','note','list'], ...data.places.map(place => [place.name,place.url,place.note,data.listName])].map(row => row.map(quote).join(',')).join('\n');
     const result = I.importCSV(csv, places);
     if(!result.places.length) {
-      status.textContent = `No new places to add · ${result.duplicates} matching links already saved.`;
+      status.textContent = `No new places to add. ${importCounts(result)}`;
       return;
     }
     result.places.forEach(place => {place.source = 'Google Maps shared list';});
-    showPreview(result, 'shared-list');
-    $('#confirm-import').click();
-    if(pending) throw new Error($('#import-status').textContent || 'The import needs attention below.');
-    status.textContent = `${result.places.length} places imported · ${result.duplicates} matching links already saved. Paste this link again to import new additions.`;
+    applyImport(result,'shared-list');
   } catch(error) {
-    status.textContent = error instanceof SyntaxError ? 'Start the local Inner Table. server to import a list, then try again.' : error.message;
+    if(sharedListRequest!==request) return;
+    status.textContent = error instanceof SyntaxError ? 'Shared links need a running Inner Table. server. You can import a Google Takeout CSV here.' : error.message;
   } finally {
-    $('#maps-list-import').disabled = false;
+    if(sharedListRequest===request) {
+      sharedListRequest=null;
+      $('#maps-list-import').disabled=false;
+    }
   }
 });
-$('#confirm-import').addEventListener('click',()=>{
-  if(!pending) return;
+function importCounts(result) {
+  return `${result.duplicates} ${result.duplicates===1?'duplicate':'duplicates'} skipped · ${result.skipped} invalid or non-Maps ${result.skipped===1?'row':'rows'} skipped.`;
+}
+function applyImport(result, kind) {
   // Recheck duplicates in case a place was added while the preview was open.
   const seen=new Set(places.map(p=>I.mapsURL(p.url)));
-  const additions=pending.places.filter(p=>{const key=I.mapsURL(p.url);if(seen.has(key))return false;seen.add(key);return true;});
-  if(places.length+additions.length>2000) {$('#import-status').textContent='This would exceed the 2,000-place prototype limit. Nothing was added.';return;}
-  places.push(...additions);const kind=pending.kind;cancelImport();changed();$('#import-status').textContent=`${additions.length} places ${kind==='backup'?'restored':'added to your guide — ready to explore'}. Edit statuses or hide places anytime.`;
-  if(kind==='csv' || kind==='shared-list')google.enrichImported(additions);
+  const additions=result.places.filter(p=>{const key=I.mapsURL(p.url);if(seen.has(key))return false;seen.add(key);return true;});
+  if(places.length+additions.length>2000) throw new Error('This would exceed the 2,000-place limit. Nothing was added.');
+  places.push(...additions);
+  closeEditor();
+  if(additions.length) changed();
+  const status=$('#import-status');
+  status.textContent=`${additions.length} ${additions.length===1?'place':'places'} ${kind==='backup'?'restored':'added to your guide'}. ${importCounts({...result,duplicates:result.duplicates+result.places.length-additions.length})}`;
+  status.focus();
+  if(additions.length) googleReady.then(()=>google.enrichImported(additions));
+}
+$('#confirm-import').addEventListener('click',()=>{
+  if(!pending || places!==pending.guide) return;
+  try {applyImport(pending,pending.kind);}
+  catch(error) {$('#import-preview-error').textContent=error.message;}
 });
 $('#show-all-in-guide').addEventListener('click',()=>{
   places.forEach(place=>{place.inGuide=true;});
@@ -366,16 +503,27 @@ $('#export-places').addEventListener('click',()=>{
   const url=URL.createObjectURL(blob),link=element('a');link.href=url;link.download='inner-table-backup.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#restore-file').addEventListener('change',async event=>{
-  const file=event.target.files[0];cancelImport();$('#import-status').textContent='';if(!file)return;
+  const file=event.target.files[0];
+  $('#import-status').textContent='';
+  if(!file)return;
   try {
     if(file.size>20_000_000) throw new Error('Choose a backup smaller than 20 MB.');
-    const restored=I.validateBackup(await file.text());const seen=new Set(places.map(p=>I.mapsURL(p.url)));let duplicates=0;
+    const contents=await file.text();
+    if(event.target.files[0]!==file) return;
+    const restored=I.validateBackup(contents);const seen=new Set(places.map(p=>I.mapsURL(p.url)));let duplicates=0;
     const fresh=restored.filter(p=>{const key=I.mapsURL(p.url);if(seen.has(key)){duplicates++;return false;}seen.add(key);return true;});
     showPreview({places:fresh,duplicates,skipped:0},'backup');
-  } catch {$('#import-status').textContent='Could not restore this backup. Use an Inner Table. JSON backup under 20 MB. No saved places were changed.';}
+  } catch {
+    if(event.target.files[0]!==file) return;
+    event.target.value='';
+    $('#import-status').textContent='Could not restore this backup. Use an Inner Table. JSON backup under 20 MB. No saved places were changed.';
+  }
 });
 renderSaved();renderDiscover();
 const googleReady = google.start();
+function checkImportedGuide() {
+  return google.enrichImported(places,'inner-table-photo-scan-v1:' + guideMode);
+}
 
 friends = createFriends({
   onFollowing: people => {
@@ -507,7 +655,8 @@ account = createAccounts({
     places = records;
     guideMode = mode;
     friends.leave();
-    closeEditor();cancelImport();planChat.reset();renderSaved();renderDiscover();
+    closeEditor();planChat.reset();renderSaved();renderDiscover();
+    googleReady.then(()=>{if(places===records)checkImportedGuide();});
   }
 });
-account.start();
+Promise.all([account.start(),googleReady]).then(checkImportedGuide);

@@ -275,7 +275,16 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
-            if route.path.startswith('/api/account/'):
+            if route.path == '/api/account/avatar':
+                owner = parse_qs(route.query).get('owner', [''])[0]
+                content = self.server.accounts.profile_photo(owner, self.headers.get('Cookie'))
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/jpeg')
+                self.send_header('Content-Length', str(len(content)))
+                self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+                self.end_headers()
+                self.wfile.write(content)
+            elif route.path.startswith('/api/account/'):
                 result, cookie = self.server.accounts.handle('GET', route.path, {}, self.headers.get('Cookie'))
                 self.json_response(result, cookie=cookie)
             elif route.path == "/api/status":
@@ -298,7 +307,7 @@ class Handler(SimpleHTTPRequestHandler):
             if self.headers.get_content_type() != "application/json":
                 raise PlacesError("Send JSON.", 415)
             length = int(self.headers.get("Content-Length", "0"))
-            maximum = 20_000_000 if self.path in ('/api/account/guide', '/api/account/migrate') else 1_000_000 if self.path in ('/api/plan', '/api/plan/shortlist', '/api/account/plan', '/api/account/plan/shortlist') else 8192
+            maximum = 20_000_000 if self.path in ('/api/account/guide', '/api/account/migrate') else 1_000_000 if self.path in ('/api/plan', '/api/plan/shortlist', '/api/account/plan', '/api/account/plan/shortlist') else 124_000 if self.path == '/api/account/profile' else 8192
             if not 0 < length <= maximum:
                 raise PlacesError("Request too large or empty.", 413)
             data = json.loads(self.rfile.read(length))

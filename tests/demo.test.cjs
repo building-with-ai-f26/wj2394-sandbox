@@ -10,6 +10,7 @@ function demoFixture() {
   const friend = {places:[{id:'friend-place', inGuide:true}]};
   let resets = 0, merges = 0, focused = null;
   const context = vm.createContext({
+    URL,
     demoMode:false, places:personal, friendGuide:friend,
     I:{ready:place => place.inGuide},
     google:{merge:place => {merges++;return place;}},
@@ -27,9 +28,16 @@ test('sample mode leaves personal and approved-friend guides intact and resets c
   fixture.controls.get('#try-demo')();
   assert.equal(fixture.focused(),'#shortlist-heading');
   const samples = fixture.context.discoverPlaces();
-  assert.equal(samples.length,6);
-  assert.ok(samples.every(place => place.name.startsWith('Sample · ')));
-  assert.ok(samples.every(place => !place.recommended && place.status === 'not specified'));
+  assert.deepEqual(Array.from(samples, place => place.name), [
+    'Via Carota', 'Caffè Dante', 'Devoción Williamsburg', 'Brooklyn Bridge Park, Pier 1'
+  ]);
+  assert.ok(samples.every(place => !place.recommended && place.status === 'not specified' && place.price === null && !place.note));
+  assert.ok(samples.every(place => place.website.startsWith('https://') && new URL(place.url).searchParams.get('query').startsWith(place.name)));
+  assert.equal(samples.filter(place => place.photo).length,3);
+  for(const {photo} of samples.filter(place => place.photo)) {
+    assert.ok(fs.existsSync('docs/prototype/artwork/' + photo.file));
+    assert.ok(photo.author && photo.source.startsWith('https://') && photo.licenseURL.startsWith('https://'));
+  }
   assert.equal(fixture.merges(),1);
   assert.equal(fixture.context.places,fixture.personal);
   assert.equal(fixture.context.friendGuide,fixture.friend);
