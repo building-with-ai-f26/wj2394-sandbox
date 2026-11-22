@@ -8,23 +8,24 @@ function demoFixture() {
   const source = fs.readFileSync('docs/prototype/app.js', 'utf8');
   const personal = [{id:'private-place', inGuide:true}];
   const friend = {places:[{id:'friend-place', inGuide:true}]};
-  let resets = 0, merges = 0;
+  let resets = 0, merges = 0, focused = null;
   const context = vm.createContext({
     demoMode:false, places:personal, friendGuide:friend,
     I:{ready:place => place.inGuide},
     google:{merge:place => {merges++;return place;}},
     planChat:{reset:() => {resets++;}}, renderDiscover() {},
-    $:selector => ({addEventListener:(_,handler) => controls.set(selector,handler)})
+    $:selector => ({addEventListener:(_,handler) => controls.set(selector,handler),focus:() => {focused = selector;}})
   });
   vm.runInContext(fs.readFileSync('docs/prototype/demo.js','utf8'), context);
   vm.runInContext(source.slice(source.indexOf('function discoverPlaces()'),source.indexOf('let planResults')),context);
-  return {context,personal,friend,controls,resets:() => resets,merges:() => merges};
+  return {context,personal,friend,controls,resets:() => resets,merges:() => merges,focused:() => focused};
 }
 
 test('sample mode leaves personal and approved-friend guides intact and resets chat on both switches', () => {
   const fixture = demoFixture();
   assert.equal(fixture.context.discoverPlaces()[0].id,'friend-place');
   fixture.controls.get('#try-demo')();
+  assert.equal(fixture.focused(),'#shortlist-heading');
   const samples = fixture.context.discoverPlaces();
   assert.equal(samples.length,6);
   assert.ok(samples.every(place => place.name.startsWith('Sample · ')));

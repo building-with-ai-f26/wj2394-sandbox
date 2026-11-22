@@ -11,6 +11,7 @@ function setup(api) {
       append(...children) {this.children.push(...children);},
       replaceChildren(...children) {this.children = children;},
       addEventListener(type,handler) {this.listeners[type] = handler;},
+      setAttribute() {},
       click() {return this.listeners.click?.();}
     };
   }
@@ -76,4 +77,17 @@ test('a guide response arriving after sign-out cannot restore private data',asyn
   await loading;
   assert.equal(app.controller.getOwner(),null);
   assert.equal(app.selected.length,0);
+});
+
+test('the Discover picker only opens an approved guide through the server',async () => {
+  const unapproved = {...person,id:'pending-friend'};
+  const app = setup(async url => url.endsWith('/connections')
+    ? {following:[person],outgoing:[unapproved],requests:[],followers:[]}
+    : {owner:person,places:[],revision:1});
+  await app.controller.setSession(true);
+  await app.controller.openGuide(unapproved.id);
+  assert.equal(app.calls.some(call=>call.url.endsWith('/friend-guide')),false);
+  await app.controller.openGuide(person.id);
+  assert.deepEqual(app.calls.at(-1).body,{ownerId:person.id});
+  assert.equal(app.controller.getOwner().id,person.id);
 });
