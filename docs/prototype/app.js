@@ -77,23 +77,24 @@ function renderDiscover() {
   const results = $('#results');
   results.replaceChildren();
   const hasReply = planResults !== null;
-  $('#discover-view').dataset.hasResults = String(hasReply);
+  const showPlaces = hasReply || demoMode;
+  $('#discover-view').dataset.hasResults = String(showPlaces);
   $('#shortlist-feedback').hidden = !hasReply;
-  results.hidden = !hasReply;
-  $('#result-summary').closest('.list-heading').hidden = !hasReply;
-  $('#discover-view .hero').hidden = false;
-  $('#plan-start').hidden = hasReply;
-  const guideCount = discoverPlaces().length;
-  $('#plan-start-copy').textContent = guideCount
-    ? `Start with an occasion, a neighborhood or a craving. We’ll search ${guideCount} saved ${guideCount === 1 ? 'place' : 'places'} in ${demoMode ? 'the fictional sample guide' : friendGuide ? 'this friend’s guide' : 'your guide'}.`
-    : 'Bring in your saved places, then tell us what you have in mind. Your guide will be ready to search.';
-  $('#plan-start [data-view]').hidden = demoMode || !!friendGuide;
+  results.hidden = !showPlaces;
+  $('#result-summary').closest('.list-heading').hidden = !showPlaces;
+  $('#shortlist-heading').textContent = hasReply ? 'Your shortlist' : 'Sample places';
+  $('#plan-start').hidden = showPlaces;
+  const data = discoverPlaces();
+  $('#plan-start-heading').textContent = friendGuide ? 'Search this guide' : data.length ? 'All set to search' : 'Start with places you trust';
+  $('#plan-start-copy').textContent = data.length
+    ? `${data.length} saved ${data.length === 1 ? 'place is' : 'places are'} available to search in this guide.`
+    : friendGuide ? 'This friend has no visible places in their guide yet.' : 'Add a Maps list you already keep, or browse a fictional guide to see how it works.';
+  $('#plan-start [data-view]').hidden = !!friendGuide || data.length > 0;
   $('#discover-view .method').hidden = !hasReply;
-  if(!hasReply) {
+  if(!showPlaces) {
     $('#result-summary').textContent = '';
     return;
   }
-  const data = discoverPlaces();
   const outcome = InnerTableMatcher.matchPlaces(data,'');
   if (planResults) {
     outcome.matches = planResults.matches.map(match => ({place: data.find(place => String(place.id) === match.id), reasons: ['AI suggestion · ' + match.reason]})).filter(({place}) => place);
@@ -132,33 +133,37 @@ function renderDiscover() {
     const avatar = element('span','guide-avatar',demoMode ? 'S' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username).slice(0,1).toUpperCase() : 'Y');
     avatar.setAttribute('aria-hidden','true');
     source.append(avatar,document.createTextNode(demoMode ? 'Fictional sample guide' : friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
-    body.append(source);
     const metadata = [I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price === null ? '' : `~$${place.price} per person`].filter(Boolean);
-    body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
-    if(planResults) {
-      const fit = element('div','reason');
-      fit.append(element('strong','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
-      body.append(fit);
-    }
+    body.append(element('h3','',demoMode ? place.name.replace(/^Sample · /,'') : place.name),element('p','place-meta',metadata.join(' · ')));
+    if(!demoMode) body.append(source);
     if(place.note) {
       const note = element('blockquote','note');
-      note.append(element('span','note-label',demoMode ? 'Sample note' : friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note` : 'Your note'),element('p','',place.note));
+      note.append(element('span','note-label',demoMode ? 'Sample note' : friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note` : 'Your note'),element('p','',demoMode ? place.note.replace(/^Fictional example\. /,'') : place.note));
       body.append(note);
     }
+    if(planResults) {
+      const fit = element('details','reason');
+      fit.append(element('summary','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
+      body.append(fit);
+    }
+    if(!demoMode) {
     const tags = element('div','tags');tags.append(element('span','visit-status',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
+    }
     const extra = demoMode ? null : google.extras(place);
     if(extra) {
       const details = element('details','place-more');
       details.append(element('summary','','Google details & reviews'),extra);
       body.append(details);
     }
-    const bottom = element('div','card-bottom');if(!demoMode && friendGuide)bottom.append(element('span','',`From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide`));bottom.append(element('span','',demoMode ? 'Fictional example · Sample details' : place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
+    const bottom = element('div','card-bottom');bottom.append(element('span','',demoMode ? 'Fictional example · Sample details' : place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
     if(!demoMode) {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
-    card.append(body,bottom);results.append(card);
+    card.append(body);
+    if(!demoMode) card.append(bottom);
+    results.append(card);
   });
 }
 $('#search-form').addEventListener('submit',event => {event.preventDefault();planChat.submit();});
-document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;planChat.submit();}));
+document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;$('#occasion').focus();}));
 $('#reset').addEventListener('click',() => {planChat.reset();HTMLFormElement.prototype.reset.call($('#search-form'));renderDiscover();$('#occasion').focus();});
 function changed() {if(demoMode)setDemoMode(false);persist();renderSaved();renderDiscover();}
 function updateSelection() {
@@ -363,8 +368,99 @@ friends = createFriends({
     planChat.reset();renderDiscover();
   }
 });
+const tour = $('#welcome-tour');
+const tourHeading = $('#tour-heading');
+const tourNext = $('#tour-next');
+const tourBack = $('#tour-back');
+const tourSample = $('#tour-sample');
+const tourSteps = [
+  ['#guide-context', 'Choose a guide', 'Search your own saved places or switch to a friend’s guide once they approve your request.'],
+  ['#search-form .search-field', 'Describe your plan', 'Mention who’s coming, what you feel like, or an area and budget. Pick an example below to fill in the prompt.'],
+  ['#shortlist-anchor', 'Read the shortlist', 'Look for who saved each place and what they said. Browse fictional places to see how a guide reads.']
+];
+let tourAccount = null;
+let tourStep = 0;
+let tourTarget = null;
+const tourSeen = new Set();
+
+function renderTour() {
+  const [selector, heading, copy] = tourSteps[tourStep];
+  tourTarget?.classList.remove('tour-target');
+  tourTarget = $(selector);
+  tourTarget.classList.add('tour-target');
+  tourTarget.after(tour);
+  $('#tour-progress').textContent = `${tourStep + 1} of ${tourSteps.length}`;
+  tourHeading.textContent = heading;
+  $('#tour-copy').textContent = copy;
+  tourBack.hidden = tourStep === 0;
+  tourNext.textContent = tourStep === tourSteps.length - 1 ? 'Done' : 'Next';
+  tourSample.hidden = tourStep !== tourSteps.length - 1 || demoMode;
+  tourHeading.focus({preventScroll:true});
+  tour.scrollIntoView({block:'nearest'});
+}
+
+function startTour() {
+  tourStep = 0;
+  tour.hidden = false;
+  showView('discover');
+  renderTour();
+}
+
+function dismissTour() {
+  tour.hidden = true;
+  tourTarget?.classList.remove('tour-target');
+  tourTarget = null;
+}
+
+function finishTour() {
+  if(!tourAccount || tour.hidden) return;
+  tourSeen.add(tourAccount);
+  try {localStorage.setItem('inner-table-tour-v1:' + tourAccount, 'seen');} catch {}
+  dismissTour();
+  $('#occasion').focus();
+}
+
+tourNext.addEventListener('click', () => {
+  if(tourStep === tourSteps.length - 1) {
+    finishTour();
+    return;
+  }
+  tourStep += 1;
+  renderTour();
+});
+tourBack.addEventListener('click', () => {
+  if(tourStep === 0) return;
+  tourStep -= 1;
+  renderTour();
+});
+$('#tour-skip').addEventListener('click', finishTour);
+tourSample.addEventListener('click', () => {
+  setDemoMode(true);
+  renderTour();
+});
+$('#tour-replay').addEventListener('click', startTour);
+document.addEventListener('keydown', event => {
+  if(event.key === 'Escape' && !tour.hidden && !$('#discover-view').hidden) {
+    event.preventDefault();
+    finishTour();
+  }
+});
+
 account = createAccounts({
-  onSession: signedIn => friends.setSession(signedIn),
+  onSession: signedIn => {
+    friends.setSession(signedIn);
+    if(!signedIn) {
+      tourAccount = null;
+      dismissTour();
+    }
+  },
+  onReady: id => {
+    if(!id || id === tourAccount) return;
+    tourAccount = id;
+    let seen = tourSeen.has(id);
+    try {seen ||= localStorage.getItem('inner-table-tour-v1:' + id) === 'seen';} catch {}
+    if(!seen) startTour();
+  },
   getDevicePlaces: () => devicePlaces,
   onMode: mode => {guideMode = mode;},
   onGuide: (records, mode) => {

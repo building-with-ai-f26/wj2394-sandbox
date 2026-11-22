@@ -56,3 +56,23 @@ Prepared on `codex/planning-design` for builder review. The planning screen now 
 Confirmed a complete sample plan through the running local server and the real AI provider. Reviewed desktop and 400px phone layouts. Twelve existing checks passed for sample isolation, friend access, bulk selection and analytics privacy. Mobbin search was unavailable because the connected plan requires an upgrade. Used the builder’s supplied Beli screenshots and existing white/teal visual system. The design detector flagged small text and existing layout warnings. Increased new supporting text to at least 12px, and visually checked the scoped layout. Live venue photo presentation still needs a populated real-guide check.
 
 Reservation follow-up remains staged. First show a verified venue-specific Resy or OpenTable link alongside Maps when one is available. Direct availability and in-app booking can follow supported provider access. Shared dinner plans and optional calendar sharing belong in a subsequent iteration. No reservation availability is represented in this design pass. Publish the redesign after the builder’s review.
+
+### First sign-in tour and planning refinement, November 21
+
+Added a skippable tour in Discover after the signed-in account guide loads. It covers choosing a guide, describing a plan, and reading the shortlist. The tour can open the fictional sample and can be replayed from Profile. Each browser remembers completion or dismissal separately for each account. Simplified the composer and put the saved note before the AI explanation.
+
+The 44 JavaScript and 36 Python tests passed. A targeted simulated account check passed for first sign-in, sample entry, skip, completion, reload, replay, and separate account state. Browser access to the loopback preview timed out, so desktop and mobile visual checks and the live two-account rehearsal remain open. No live provider calls were made during this pass.
+
+Clock checkpoints were 10:33:06 to 10:35:18 PM America/New_York. This is about two minutes of observed session coverage, including tool waits. Earlier unobserved time is excluded and weekly hours await reconciliation.
+
+The follow-up preview session was observed from 10:37:47 PM to 10:47:14 PM America/New_York, including tool waits. The loopback preview briefly passed its health check, then stopped responding. Created a separate offline HTML preview with a fictional account and example recommendations. Verified that its embedded scripts parse and that the simulated session and sample shortlist return results.
+
+### Discover critique and contextual tour, November 21
+
+Two independent Impeccable reviews found competing entry points, an empty shortlist taking up space and a tour detached from the controls it described. The manual design review scored the earlier screen 18 of 40. The detector flagged the earlier results pane for padding. The revised empty state provides direct routes to add a Maps list or browse fictional places. The shortlist emphasizes place names and saved notes, with the AI explanation available on demand. The three tour steps follow the guide, prompt and shortlist in place, with progress, Back, Skip, Escape and Profile replay. The shared palette now uses aubergine and pale lavender with a green tour highlight.
+
+Minglo's profile URL redirected to sign-in, so the signed-in reference could not be verified. Viewed the revised Discover screen in Chrome at desktop and phone widths using a fictional account. Browser interaction checks passed for tour entry, placement, navigation, sample browsing, completion, Profile replay and Escape. All 44 JavaScript tests and 36 Python tests passed. No provider requests were needed for the preview.
+
+Clock checkpoints span 10:49:35 PM to 11:01:50 PM America/New_York, with tool waits included. This is estimated observed session coverage. Earlier unobserved time is excluded and weekly hours still await reconciliation.
+
+The November 21 GitHub publication session was first observed at 11:02:41 PM America/New_York. All 80 tests passed again before staging. Clock coverage through 11:02:47 PM is an estimated partial session, including tool waits. Weekly hours await reconciliation.

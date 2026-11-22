@@ -11,17 +11,44 @@
 <main><p id="friend-access-status" class="account-status" role="status" aria-live="polite"></p><p id="account-sync" class="account-sync" role="status" aria-live="polite"></p>
 <section id="discover-view">
 <div class="planning-workspace"><div class="planning-pane">
-<div class="hero"><h1>Where would your friend book?</h1><p>A place for your plan, from people you trust.</p></div>
-<div class="guide-picker"><div class="guide-person"><span class="guide-caption">Search in</span><strong id="guide-person">Your guide</strong><button id="use-my-guide" type="button" class="text-button" hidden>Back to my guide</button></div><button type="button" class="text-button" data-view="friends">Choose a friend’s guide</button></div>
-<div id="demo-notice" class="demo-controls" hidden><p>Fictional sample guide · Example places and details</p><button id="leave-demo" class="text-button" type="button">Use my guide</button></div>
+<header class="discover-heading">
+  <h1 id="discover-title" tabindex="-1">Where should we go?</h1>
+  <p>Find a place for the occasion in your saved spots or a friend’s guide.</p>
+</header>
+<div id="guide-context">
+  <div class="guide-picker">
+    <div class="guide-person"><span class="guide-caption">Searching</span><strong id="guide-person">Your guide</strong><button id="use-my-guide" type="button" class="text-button" hidden>Back to my guide</button></div>
+    <button type="button" class="text-button" data-view="friends">Choose a friend’s guide</button>
+  </div>
+  <div id="demo-notice" class="guide-picker" hidden><strong>Fictional sample guide</strong><button id="leave-demo" class="text-button" type="button">Return to your guide</button></div>
+</div>
+<section id="welcome-tour" aria-labelledby="tour-heading" hidden>
+  <div class="tour-top"><span id="tour-progress"></span><button id="tour-skip" class="text-button" type="button">Skip tour</button></div>
+  <h2 id="tour-heading" tabindex="-1"></h2>
+  <p id="tour-copy"></p>
+  <div class="tour-actions">
+    <button id="tour-back" class="secondary" type="button" hidden>Back</button>
+    <button id="tour-sample" class="secondary" type="button" hidden>Show sample places</button>
+    <button id="tour-next" class="primary" type="button">Next</button>
+  </div>
+</section>
 <div id="plan-messages" class="plan-messages" role="log" aria-label="Your plan conversation" aria-live="polite" hidden></div><form id="search-form"><div class="filters">
 <div class="search-field"><label for="occasion">What’s the plan?</label><textarea id="occasion" maxlength="2000" rows="3" placeholder="Japanese with a friend, somewhere we can talk. West Village, around $80 each…"></textarea></div>
-<div class="composer-actions"><span class="composer-hint">Occasion, area, budget. In your own words.</span><button id="plan-send" class="primary" type="submit">Find a place <span aria-hidden="true">→</span></button></div></div>
-<div class="examples" aria-label="Try a plan"><button type="button" data-prompt="Dinner with a friend I haven’t seen in months">A proper catch-up</button><button type="button" data-prompt="Somewhere fun where we can still hear each other">Fun, but we can talk</button><button type="button" data-prompt="A special dinner under $100 each">Special, under $100</button></div><p id="plan-status" class="small" role="status" aria-live="polite"></p><div class="plan-options"><details class="plan-disclosure"><summary>What’s shared with AI?</summary><p>Sending a plan shares your message and this guide’s notes and available Google descriptions, price ranges and review samples with our AI provider to find a fit. Keep chatting to refine it. Shift + Enter adds a new line.</p></details><button id="reset" class="text-button" type="button">New plan</button></div></form>
-<div id="demo-controls" class="demo-controls"><button id="try-demo" class="text-button" type="button">Try a sample guide</button><span class="small">Fictional places, for a look around.</span></div>
+<div class="composer-actions"><button id="plan-send" class="primary" type="submit">Find places</button></div></div>
+<div class="examples" aria-label="Try a plan"><button type="button" data-prompt="Dinner with a friend I haven’t seen in months">Catch up over dinner</button><button type="button" data-prompt="Somewhere fun where we can still hear each other">Lively and easy to talk</button><button type="button" data-prompt="A special dinner under $100 each">Special dinner under $100</button></div><p id="plan-status" class="small" role="status" aria-live="polite"></p><div class="plan-options"><details class="plan-disclosure"><summary>What’s shared with AI?</summary><p>Sending a plan shares your message and this guide’s notes and available Google descriptions, price ranges and review samples with our AI provider to find a fit. Keep chatting to refine it. Shift + Enter adds a new line.</p></details><button id="reset" class="text-button" type="button">New plan</button></div></form>
 </div><div class="recommendations-pane" aria-label="Place recommendations">
-<div id="plan-start" class="plan-start"><h2>Your next place starts with a plan.</h2><p id="plan-start-copy">Tell us what you have in mind. We’ll look through your guide for places that fit.</p><button type="button" class="text-button" data-view="places">Bring your saved places</button></div>
-<div class="list-heading"><div><h2>Your shortlist</h2><p id="result-summary" role="status" aria-live="polite"></p></div><button type="button" class="text-button" data-view="places">My places</button></div><div id="results" class="cards"></div>
+<div id="shortlist-anchor">
+  <div id="plan-start" class="plan-start">
+    <h2 id="plan-start-heading">Start with places you trust</h2>
+    <p id="plan-start-copy"></p>
+    <button type="button" class="text-button" data-view="places">Add saved places</button>
+  </div>
+  <div class="list-heading" hidden>
+    <div><h2 id="shortlist-heading">Your shortlist</h2><p id="result-summary" role="status" aria-live="polite"></p></div>
+  </div>
+</div>
+<div id="demo-controls" class="demo-controls"><button id="try-demo" class="text-button" type="button">Browse a fictional guide</button></div>
+<div id="results" class="cards"></div>
 <div id="shortlist-feedback" class="shortlist-feedback" hidden><p>Did this shortlist help?</p><div class="actions"><button id="feedback-helpful" type="button" class="secondary">Helpful</button><button id="feedback-not-yet" type="button" class="secondary">Not yet</button></div><p id="shortlist-feedback-status" class="small" role="status"></p></div>
 <details class="method"><summary>A little more about your shortlist</summary><p>Suggestions use recorded occasion tags, neighborhood, and an optional all-in budget estimate. Both “fun” and “good for talking” must match when you ask for both. Unknown prices are excluded from budget searches. Imported places appear automatically, including uncategorized pins. Suggested tags from notes and list keywords are labeled as inferred. Saved-list suggestions and personal endorsements are shown separately. You can edit statuses or hide any place anytime. Visit status, personal notes, and neighborhood are optional. Visit status is shown on each card; unknown details stay unknown.</p><p>Browsing uses keyword rules. The plan conversation uses AI when configured and may make mistakes. AI reasons use your notes, recorded details, and labeled review hints. Confirm important requirements with the venue. It cannot verify dietary needs, accessibility, current prices, opening hours, or booking availability. When available, Google details and a small review sample add context to your saved places.</p></details>
 </div></div></section>
@@ -85,7 +112,7 @@
 <div class="account-panel"><h2>Your places, across devices</h2><p>Copy this browser’s saved places, personal notes and statuses to your private account. Existing account entries are kept when a Maps link appears in both guides.</p>
 <button id="account-copy" type="button" class="primary">Copy device places to my account</button>
 <div class="actions"><button id="account-use-cloud" class="secondary" type="button">Use my account guide</button><button id="account-use-device" class="secondary" type="button">Use this device’s guide</button></div>
-</div><div class="actions"><button id="account-sign-out" class="secondary" type="button">Sign out</button><button id="account-reload" class="secondary" type="button" hidden>Reload account guide</button></div>
+</div><div class="actions"><button id="tour-replay" class="text-button" type="button">Take the guided tour</button><button id="account-sign-out" class="secondary" type="button">Sign out</button><button id="account-reload" class="secondary" type="button" hidden>Reload account guide</button></div>
 </div><button id="account-retry" class="secondary" type="button" hidden>Retry saving account changes</button>
 </section>
 <dialog id="google-match" aria-labelledby="google-match-title"><div class="list-heading"><h2 id="google-match-title">Find your place</h2><button id="google-match-close" type="button" class="secondary">Close</button></div><p class="small">Choose the address that matches your saved place.</p><div id="google-candidates"></div><p class="google-brand" translate="no">Google Maps</p></dialog></main><footer><span class="wordmark">Inner Table<span>.</span></span><span>A small guide, with someone behind every suggestion.</span><a href="../index.html">Building with AI · Pod 9 ↗</a><p class="small">PostHog records pageviews, control clicks and masked sessions for testing. Guide, chat and account areas are blocked in recordings. <a href="../privacy.html">Privacy details</a></p></footer>
