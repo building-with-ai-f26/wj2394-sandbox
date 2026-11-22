@@ -3,6 +3,7 @@ const I = InnerTableImport;
 const STORE = 'inner-table-places-v1';
 let account = null, friends = null, friendGuide = null, guideMode = 'device';
 let places = [], pending = null, storageBroken = false;
+let demoMode = false;
 const selectedPlaces = new Set();
 
 try {
@@ -39,29 +40,68 @@ function showView(view) {
   window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
 }
 document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click',() => showView(node.dataset.view)));
-function discoverPlaces() { return (friendGuide ? friendGuide.places : places).filter(I.ready).map(google.merge); }
+function discoverPlaces() {
+  if(demoMode) return InnerTableDemo;
+  return (friendGuide ? friendGuide.places : places).filter(I.ready).map(google.merge);
+}
+function setDemoMode(enabled) {
+  demoMode = enabled;
+  planChat.reset();
+  renderDiscover();
+}
+$('#try-demo').addEventListener('click', () => setDemoMode(true));
+$('#leave-demo').addEventListener('click', () => setDemoMode(false));
 let planResults = null;
-const planChat = createPlanChat({getOwner:()=>friends?.getOwner(), onAccessDenied:()=>friends.leave('This friend’s guide is no longer available. You are back in your own guide.'), getPlaces: discoverPlaces, preparePlaces: async ids => {await googleReady;return google.prepareForPlan(ids);}, onResults: result => {planResults = result; renderDiscover();}});
+const planChat = createPlanChat({
+  getOwner: () => demoMode ? null : friends?.getOwner(),
+  onAccessDenied: () => friends.leave('This friend’s guide is no longer available. You are back in your own guide.'),
+  getPlaces: discoverPlaces,
+  preparePlaces: async ids => {
+    if(demoMode) return {requested:ids.length, checked:0, error:'', sample:true};
+    await googleReady;
+    return google.prepareForPlan(ids);
+  },
+  onResults: result => {
+    planResults = result;
+    $('#shortlist-feedback-status').textContent = '';
+    renderDiscover();
+  }
+});
+for(const id of ['feedback-helpful','feedback-not-yet']) {
+  $('#' + id).addEventListener('click', () => {$('#shortlist-feedback-status').textContent = 'Thanks for your feedback.';});
+}
 function renderDiscover() {
+  $('#demo-controls').hidden = demoMode;
+  $('#demo-notice').hidden = !demoMode;
+  $('#discover-view .guide-picker').hidden = demoMode;
   const results = $('#results');
   results.replaceChildren();
   const hasReply = planResults !== null;
-  results.hidden = !hasReply;
-  $('#result-summary').closest('.list-heading').hidden = !hasReply;
-  $('#discover-view .hero').hidden = true;
+  const showPlaces = hasReply || demoMode;
+  $('#discover-view').dataset.hasResults = String(showPlaces);
+  $('#shortlist-feedback').hidden = !hasReply;
+  results.hidden = !showPlaces;
+  $('#result-summary').closest('.list-heading').hidden = !showPlaces;
+  $('#shortlist-heading').textContent = hasReply ? 'Your shortlist' : 'Sample places';
+  $('#plan-start').hidden = showPlaces;
+  const data = discoverPlaces();
+  $('#plan-start-heading').textContent = friendGuide ? 'Search this guide' : data.length ? 'All set to search' : 'Start with places you trust';
+  $('#plan-start-copy').textContent = data.length
+    ? `${data.length} saved ${data.length === 1 ? 'place is' : 'places are'} available to search in this guide.`
+    : friendGuide ? 'This friend has no visible places in their guide yet.' : 'Add a Maps list you already keep, or browse a fictional guide to see how it works.';
+  $('#plan-start [data-view]').hidden = !!friendGuide || data.length > 0;
   $('#discover-view .method').hidden = !hasReply;
-  if(!hasReply) {
+  if(!showPlaces) {
     $('#result-summary').textContent = '';
     return;
   }
-  const data = discoverPlaces();
   const outcome = InnerTableMatcher.matchPlaces(data,'');
   if (planResults) {
     outcome.matches = planResults.matches.map(match => ({place: data.find(place => String(place.id) === match.id), reasons: ['AI suggestion · ' + match.reason]})).filter(({place}) => place);
     outcome.recognized = true;
     outcome.unsupported = false;
   }
-  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
+  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'Fictional sample guide' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
     const noPersonal = !data.length && !friendGuide;
@@ -78,7 +118,7 @@ function renderDiscover() {
   }
   outcome.matches.forEach(({place,reasons}) => {
     const card = element('article','card');
-    const photo=google.photo(place);
+    const photo=demoMode ? null : google.photo(place);
     if(photo) {
       const image = element('img','place-photo');
       image.src = photo;
@@ -89,27 +129,43 @@ function renderDiscover() {
       card.classList.add('has-photo');
     }
     const body = element('div','card-body');
-    body.append(element('p','card-source',friendGuide ? `From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide` : 'From your guide'));
+    const source = element('p','card-source');
+    const avatar = element('span','guide-avatar',demoMode ? 'S' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username).slice(0,1).toUpperCase() : 'Y');
+    avatar.setAttribute('aria-hidden','true');
+    source.append(avatar,document.createTextNode(demoMode ? 'Fictional sample guide' : friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
     const metadata = [I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price === null ? '' : `~$${place.price} per person`].filter(Boolean);
-    body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
-    if(place.note) body.append(element('p','note',friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note · ${place.note}` : place.note));
-    if(planResults) body.append(element('p','reason',reasons.join('. ')+'.'));
-    const tags = element('div','tags');tags.append(element('span','tag',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
-    const extra = google.extras(place);
+    body.append(element('h3','',demoMode ? place.name.replace(/^Sample · /,'') : place.name),element('p','place-meta',metadata.join(' · ')));
+    if(!demoMode) body.append(source);
+    if(place.note) {
+      const note = element('blockquote','note');
+      note.append(element('span','note-label',demoMode ? 'Sample note' : friendGuide ? `${friendGuide.owner.display_name || friendGuide.owner.username}’s note` : 'Your note'),element('p','',demoMode ? place.note.replace(/^Fictional example\. /,'') : place.note));
+      body.append(note);
+    }
+    if(planResults) {
+      const fit = element('details','reason');
+      fit.append(element('summary','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
+      body.append(fit);
+    }
+    if(!demoMode) {
+    const tags = element('div','tags');tags.append(element('span','visit-status',`Visit status: ${I.visitLabel(place.status)}`));place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag)?'Google review hint: ':(place.inferredTags || []).includes(tag)?'Suggested: ':'') + (tag === 'conversation' ? 'good for talking' : tag))));body.append(tags);
+    }
+    const extra = demoMode ? null : google.extras(place);
     if(extra) {
       const details = element('details','place-more');
       details.append(element('summary','','Google details & reviews'),extra);
       body.append(details);
     }
-    const bottom = element('div','card-bottom');if(friendGuide)bottom.append(element('span','',`From ${friendGuide.owner.display_name || friendGuide.owner.username}’s guide`));bottom.append(element('span','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
-    {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
-    card.append(body,bottom);results.append(card);
+    const bottom = element('div','card-bottom');bottom.append(element('span','',demoMode ? 'Fictional example · Sample details' : place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
+    if(!demoMode) {const link=element('a','','Open in Maps ↗');link.href=I.mapsURL(place.url);link.target='_blank';link.rel='noopener noreferrer';bottom.append(link);}
+    card.append(body);
+    if(!demoMode) card.append(bottom);
+    results.append(card);
   });
 }
 $('#search-form').addEventListener('submit',event => {event.preventDefault();planChat.submit();});
-document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;planChat.submit();}));
+document.querySelectorAll('[data-prompt]').forEach(node => node.addEventListener('click',() => {$('#occasion').value=node.dataset.prompt;$('#occasion').focus();}));
 $('#reset').addEventListener('click',() => {planChat.reset();HTMLFormElement.prototype.reset.call($('#search-form'));renderDiscover();$('#occasion').focus();});
-function changed() {persist();renderSaved();renderDiscover();}
+function changed() {if(demoMode)setDemoMode(false);persist();renderSaved();renderDiscover();}
 function updateSelection() {
   $('#selection-count').textContent = `${selectedPlaces.size} selected`;
   $('#select-all-places').disabled = !places.length || selectedPlaces.size === places.length;
@@ -301,6 +357,7 @@ const googleReady = google.start();
 friends = createFriends({
   beforeSwitch: () => account.flush(),
   onSelect: guide => {
+    demoMode = false;
     (friendGuide?.places || []).forEach(place => google.forget(place.id));
     friendGuide = {...guide,places:I.validateBackup(JSON.stringify({version:1,places:guide.places}))};
     planChat.reset();renderDiscover();
@@ -311,11 +368,103 @@ friends = createFriends({
     planChat.reset();renderDiscover();
   }
 });
+const tour = $('#welcome-tour');
+const tourHeading = $('#tour-heading');
+const tourNext = $('#tour-next');
+const tourBack = $('#tour-back');
+const tourSample = $('#tour-sample');
+const tourSteps = [
+  ['#guide-context', 'Choose a guide', 'Search your own saved places or switch to a friend’s guide once they approve your request.'],
+  ['#search-form .search-field', 'Describe your plan', 'Mention who’s coming, what you feel like, or an area and budget. Pick an example below to fill in the prompt.'],
+  ['#shortlist-anchor', 'Read the shortlist', 'Look for who saved each place and what they said. Browse fictional places to see how a guide reads.']
+];
+let tourAccount = null;
+let tourStep = 0;
+let tourTarget = null;
+const tourSeen = new Set();
+
+function renderTour() {
+  const [selector, heading, copy] = tourSteps[tourStep];
+  tourTarget?.classList.remove('tour-target');
+  tourTarget = $(selector);
+  tourTarget.classList.add('tour-target');
+  tourTarget.after(tour);
+  $('#tour-progress').textContent = `${tourStep + 1} of ${tourSteps.length}`;
+  tourHeading.textContent = heading;
+  $('#tour-copy').textContent = copy;
+  tourBack.hidden = tourStep === 0;
+  tourNext.textContent = tourStep === tourSteps.length - 1 ? 'Done' : 'Next';
+  tourSample.hidden = tourStep !== tourSteps.length - 1 || demoMode;
+  tourHeading.focus({preventScroll:true});
+  tour.scrollIntoView({block:'nearest'});
+}
+
+function startTour() {
+  tourStep = 0;
+  tour.hidden = false;
+  showView('discover');
+  renderTour();
+}
+
+function dismissTour() {
+  tour.hidden = true;
+  tourTarget?.classList.remove('tour-target');
+  tourTarget = null;
+}
+
+function finishTour() {
+  if(!tourAccount || tour.hidden) return;
+  tourSeen.add(tourAccount);
+  try {localStorage.setItem('inner-table-tour-v1:' + tourAccount, 'seen');} catch {}
+  dismissTour();
+  $('#occasion').focus();
+}
+
+tourNext.addEventListener('click', () => {
+  if(tourStep === tourSteps.length - 1) {
+    finishTour();
+    return;
+  }
+  tourStep += 1;
+  renderTour();
+});
+tourBack.addEventListener('click', () => {
+  if(tourStep === 0) return;
+  tourStep -= 1;
+  renderTour();
+});
+$('#tour-skip').addEventListener('click', finishTour);
+tourSample.addEventListener('click', () => {
+  setDemoMode(true);
+  renderTour();
+});
+$('#tour-replay').addEventListener('click', startTour);
+document.addEventListener('keydown', event => {
+  if(event.key === 'Escape' && !tour.hidden && !$('#discover-view').hidden) {
+    event.preventDefault();
+    finishTour();
+  }
+});
+
 account = createAccounts({
-  onSession: signedIn => friends.setSession(signedIn),
+  onSession: signedIn => {
+    friends.setSession(signedIn);
+    if(!signedIn) {
+      tourAccount = null;
+      dismissTour();
+    }
+  },
+  onReady: id => {
+    if(!id || id === tourAccount) return;
+    tourAccount = id;
+    let seen = tourSeen.has(id);
+    try {seen ||= localStorage.getItem('inner-table-tour-v1:' + id) === 'seen';} catch {}
+    if(!seen) startTour();
+  },
   getDevicePlaces: () => devicePlaces,
   onMode: mode => {guideMode = mode;},
   onGuide: (records, mode) => {
+    demoMode = false;
     selectedPlaces.clear();
     places.forEach(place => google.forget(place.id));
     places = records;

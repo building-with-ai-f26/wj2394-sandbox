@@ -81,9 +81,10 @@ def clean_places(places):
 
 
 class Accounts:
-    def __init__(self, url='', key=''):
+    def __init__(self, url='', key='', public_origin=''):
         self.url = url.rstrip('/')
         self.key = key
+        self.public_origin = public_origin
         self.configured = bool(re.fullmatch(r'https://[a-z0-9-]+\.supabase\.co', self.url) and key)
         if key.startswith('sb_secret_'):
             self.configured = False
@@ -122,7 +123,8 @@ class Accounts:
     def start_google(self, origin):
         if not self.configured:
             raise AccountError('Account sign-in is being prepared.', 503)
-        if not re.fullmatch(r'http://(?:127\.0\.0\.1|localhost):[0-9]{1,5}', origin):
+        valid_origin = origin == self.public_origin if self.public_origin else bool(re.fullmatch(r'http://(?:127\.0\.0\.1|localhost):[0-9]{1,5}', origin))
+        if not valid_origin:
             raise AccountError('Invalid sign-in address.')
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
@@ -135,6 +137,8 @@ class Accounts:
         query = urlencode({'provider':'google', 'redirect_to':origin + '/api/account/google/callback',
                            'code_challenge':challenge, 'code_challenge_method':'s256', 'scopes':'openid email profile'})
         cookie = f'{OAUTH_COOKIE}={attempt_id}; HttpOnly; SameSite=Lax; Path=/api/account/google; Max-Age=600'
+        if self.public_origin:
+            cookie += '; Secure'
         return {'url':self.url + '/auth/v1/authorize?' + query}, cookie
 
     def finish_google(self, code, cookie):
@@ -195,7 +199,8 @@ class Accounts:
             raise AccountError('The account service could not be reached. Your pending changes are still on this page.', 502) from None
 
     def cookie(self, session_id='', age=28800):
-        return f'{COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/api/account; Max-Age={age}'
+        secure = '; Secure' if self.public_origin else ''
+        return f'{COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/api/account; Max-Age={age}' + secure
 
     def get_session(self, cookie):
         parsed = SimpleCookie()

@@ -4,7 +4,7 @@
   const isPrototype = location.pathname.includes('/prototype/');
   const surface = isPrototype ? 'prototype' : 'report';
   const environment = ['localhost', '127.0.0.1'].includes(location.hostname) ? 'local' : 'public';
-  const controls = new Set(['plan-send', 'reset', 'show-add', 'confirm-import', 'cancel-import',
+  const controls = new Set(['try-demo', 'leave-demo', 'feedback-helpful', 'feedback-not-yet', 'plan-send', 'reset', 'show-add', 'confirm-import', 'cancel-import',
     'show-all-in-guide', 'export-places', 'friends-refresh', 'use-my-guide',
     'account-copy', 'account-use-cloud', 'account-use-device', 'account-sign-out']);
   const forms = new Set(['search-form', 'place-form', 'account-auth-form',

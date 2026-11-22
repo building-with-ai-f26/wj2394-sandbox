@@ -6,7 +6,7 @@
 - **Pod:** 9
 - **Product Page & Living PRD:** https://building-with-ai-f26.github.io/wj2394-sandbox/
 - **Prototype on GitHub Pages:** https://building-with-ai-f26.github.io/wj2394-sandbox/prototype/
-- **App:** runs locally through Week 4; add a cloud URL in Build 5.
+- **App:** local development plus a Render demo being prepared on `codex/public-demo`.
 
 ## Start here: Build 1
 
@@ -42,7 +42,7 @@ Import uses note, list-name, and export-tag keywords to suggest occasion tags. T
 
 Your places are kept in this browser's local storage. Submitting a plan sends a guide summary to the configured AI provider as described below. Use **Export backup** and **Restore backup** to keep a copy. Use the same browser and origin (`127.0.0.1:8001`) to return to your data. Private browsing or clearing site data can remove it. Storage errors are shown in My places.
 
-Discover searches your visible saved places. Fictional fixtures remain available for deterministic checks. The local server supports optional Google place enrichment and an AI plan conversation. Accounts and private sharing remain future work. **Connect Google** is a clearly labeled future entry point, not an authorization button.
+Discover searches your visible saved places. **Try sample guide** switches to six clearly labeled fictional examples in page memory. Sample mode resets the conversation on entry and exit. Accounts support profiles, explicit device-to-account copying, and approved-follower access. Automatic Google access to private Maps saves remains future work.
 
 From the repository root, run:
 
@@ -50,7 +50,7 @@ From the repository root, run:
 python server.py --port 8001
 ```
 
-Open `http://127.0.0.1:8001/prototype/` for the app, or `http://127.0.0.1:8001/` for the class product page. Stop the server with Ctrl+C. Do not use the repository-root server as a public deployment: it is for local development only.
+Open `http://127.0.0.1:8001/prototype/` for the app, or `http://127.0.0.1:8001/` for the class product page. Stop the server with Ctrl+C. Local mode binds to loopback. Use the explicit hosted mode below behind Render HTTPS for a public demo.
 
 GitHub Pages publishes `main:/docs`, so the prototype source lives in `docs/prototype/`. Use the Pages URLs above to run the public pages; GitHub's repository file viewer displays source. The local server serves `docs/` at its root, so the app path is `/prototype/`. Browser-stored places remain on their original origin: imports made at localhost are not transferred to GitHub Pages; use backup export/restore to move them.
 
@@ -75,7 +75,33 @@ cd <your-repo-name>
 
 If your app needs API keys, use a local environment file such as `.env`. Keep private keys out of source code, browser code, screenshots, and commits. The template ignores `.env`; `.env.example` contains placeholders only.
 
-## Local AI conversation
+## Render demo setup
+
+The approved public demo uses the same Python app on `codex/public-demo`. `render.yaml` describes a free, single-instance service. For manual setup, connect the public repository, select Python 3 and this branch, leave Root Directory empty, set Build Command to `python analytics_config.py`, Start Command to `python server.py`, and Health Check Path to `/healthz`. Disable automatic deployment to keep a review step before publishing.
+
+Set the following values privately in Render environment settings.
+
+- `APP_MODE=public`
+- Separate demo `OPENROUTER_API_KEY` and `GOOGLE_MAPS_API_KEY`
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`
+- `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST=https://us.i.posthog.com`
+- `OPENROUTER_MODEL=openai/gpt-4o-mini`
+- `GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION=40`
+- `GOOGLE_PLACES_REVIEWS_ENABLED=true`
+
+The builder selected separate demo keys with a $2 OpenRouter credit cap. Google project quotas apply across that project, so a separate demo Cloud project gives the hosted demo independent quotas. Set API restrictions to Places API (New) and restrict the key to Render's documented outbound addresses once the service is created. Confirm the key cap and quotas in provider settings before enabling live calls.
+
+Render supplies `PORT` and `RENDER_EXTERNAL_URL`. Hosted mode binds to `0.0.0.0` behind Render HTTPS and requires the configured HTTPS origin. A custom domain requires `APP_PUBLIC_ORIGIN` set to that exact origin. Session cookies use HttpOnly, SameSite=Strict and Secure in hosted mode. The temporary OAuth cookie uses SameSite=Lax. API requests validate Host/Origin before provider calls. The public API allowance is 300 requests per rolling hour overall and 60 per visitor. AI allows 30 provider calls and Google allows 40 requests per running process. A plan normally uses two AI calls. These counters reset on restart. Provider-side controls determine the demo's independent spending limits.
+
+Add the deployed app's exact `https://<service>.onrender.com/api/account/google/callback` to Supabase Authentication's allowed redirect URLs. Retain the local callback entries. Email confirmation links use the Supabase Site URL. For public testing, set it to the hosted `/prototype/` page. Google sign-in creates an app session. Automatic private Maps-save importing remains planned.
+
+Local development continues through `python server.py --port 8001` with `APP_MODE=local` as the default. The developer's private `.env` supplies local values. Render has its own environment settings. Browser places stay on the origin where they were created. Use backup export/restore or explicit account copying to move a guide between origins.
+
+Free Render instances sleep after inactivity and can take about a minute to wake. Restarts clear in-memory sessions, temporary Google details, API counters and the ephemeral usage ledger. Account guides persist in Supabase. Reconcile hosted API costs against provider records because the hosted ledger is temporary.
+
+Before sharing, verify `/healthz`, a sample conversation, a real-place Google lookup, sign-in, device/account switching and follower access. **Try sample guide** uses fictional places in memory, bypasses Google and preserves personal guides. The sample is labeled throughout the UI. Feedback buttons send only fixed Helpful/Not yet control identifiers through the existing masked PostHog setup.
+
+## AI conversation configuration
 
 Set `OPENROUTER_API_KEY` in your private `.env` and restart `python server.py --port 8001`. Never paste the key into chat or commit it. `OPENROUTER_MODEL` defaults to `openai/gpt-4o-mini` and can be changed locally. Google enrichment uses `GOOGLE_MAPS_API_KEY`, with reviews controlled by `GOOGLE_PLACES_REVIEWS_ENABLED`.
 

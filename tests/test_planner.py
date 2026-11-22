@@ -50,6 +50,22 @@ class PlannerTests(unittest.TestCase):
                 Planner('fixture-secret').recommend(self.data())
         self.assertNotIn('fixture-secret', str(caught.exception))
 
+    def test_occasion_only_plan_does_not_require_a_cuisine(self):
+        data = self.data()
+        data['places'][0]['name'] = 'Sample · 茶'
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        result = {'reply':'A fictional catch-up option.', 'matches':[{'id':'fictional-1','reason':'Recorded conversation tag'}]}
+        response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+        with patch('planner.urlopen',return_value=response) as upstream:
+            answer = Planner('fixture').recommend(data)
+        system = json.loads(upstream.call_args.args[0].data)['messages'][0]['content']
+        self.assertNotIn('Explicit cuisine is required', system)
+        self.assertIn('An occasion-only request can match supplied occasion evidence', system)
+        self.assertIn('Sample · 茶', system)
+        self.assertEqual(answer['matches'][0]['id'], 'fictional-1')
+
     def test_google_evidence_reaches_final_ranking_and_shortlist_allows_missing_data(self):
         data = self.data()
         data['places'][0].update({'googleDescription': 'A cafe with a garden.',

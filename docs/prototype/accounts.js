@@ -1,5 +1,5 @@
 /* Account tokens live on the local server. Device imports move only on explicit copy. */
-function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}}) {
+function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}, onReady = () => {}}) {
   const $ = selector => document.querySelector(selector);
   let signedIn = false;
   let mode = 'device';
@@ -125,6 +125,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}}
         say(confirmationMessage);
         document.querySelector('[data-view="account"]').click();
       }
+      if(signedIn) onReady(session.profile.id);
     } catch(error) {say(error.message);}
   }
   $('#account-auth-form').addEventListener('submit', event => {
