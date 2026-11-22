@@ -56,7 +56,7 @@
         session_recording: {
           maskAllInputs: true,
           maskTextSelector: '*',
-          blockSelector: 'img, svg, canvas, #results, #my-places, #plan-messages, #import-preview, #place-editor, #google-match, #account-view, #friends-view, #guide-person, #account-sync, #friend-access-status, #plan-status, #result-summary, #import-status, #storage-status, #guide-storage-note',
+          blockSelector: 'img, svg, canvas, #results, #my-places, #plan-messages, #import-preview, #place-editor, #google-match, #account-view, #friends-view, #guide-context, #guide-person, #account-sync, #friend-access-status, #plan-status, #result-summary, #import-status, #storage-status, #guide-storage-note',
           recordHeaders: false,
           recordBody: false,
           recordCrossOriginIframes: false

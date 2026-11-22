@@ -9,6 +9,13 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   let busy = false;
   let blocked = false;
   function say(message) { $('#account-status').textContent = message; }
+  function renderProfile(profile = {}) {
+    const name = profile.display_name || '';
+    const username = profile.username || '';
+    $('#profile-display-name').textContent = name || 'Your profile';
+    $('#profile-display-handle').textContent = username ? `@${username}` : 'Choose a username to help friends find you.';
+    $('#profile-avatar').textContent = [...name.trim()][0]?.toUpperCase() || '';
+  }
   async function request(path, body) {
     const response = await fetch('/api/account/' + path, body === undefined ? {} : {
       method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
@@ -78,10 +85,10 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
     $('#account-sync').textContent = '';
     render();
   }
-  async function loadAccount() {
+  async function loadAccount(announce = true) {
     await flush();
     applyGuide(await request('guide'));
-    say('Your private account guide is ready.');
+    if(announce)say('Your private account guide is ready.');
   }
   async function action(work) {
     if(busy)return;
@@ -118,7 +125,8 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
       if(signedIn) {
         $('#profile-name').value = session.profile.display_name || '';
         $('#profile-username').value = session.profile.username || '';
-        await loadAccount();
+        renderProfile(session.profile);
+        await loadAccount(false);
       }
       render();
       if(confirmationMessage) {
@@ -152,7 +160,9 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   $('#account-profile-form').addEventListener('submit', event => {
     event.preventDefault();
     action(async () => {
-      await request('profile',{display_name:$('#profile-name').value.trim(),username:$('#profile-username').value.trim()});
+      const profile = {display_name:$('#profile-name').value.trim(),username:$('#profile-username').value.trim()};
+      await request('profile',profile);
+      renderProfile(profile);
       say('Your private profile is saved.');
     });
   });
@@ -181,6 +191,7 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
     signedIn = false;
     mode = 'device';
     $('#account-profile-form').reset();
+    renderProfile();
     onGuide(getDevicePlaces(),mode);
     say('Signed out. Your device guide is ready.');
   }));

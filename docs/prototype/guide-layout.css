@@ -1,0 +1,252 @@
+/* Shared shell and list layout for the guide. */
+:root {
+  --paper: #fbfbf8;
+  --card: #fff;
+  --ink: #1e2731;
+  --muted: #525d67;
+  --line: #dadfdf;
+  --wine: #234e7e;
+  --olive: #395447;
+  --brown: #4d6173;
+  --wash: #edf1f3;
+}
+
+html { scrollbar-color: #aebbc3 var(--paper); }
+::selection { background: #d9e7f1; color: var(--ink); }
+.topbar, .topbar nav { background: var(--paper); }
+.topbar .wordmark { font-size: 27px; }
+.topbar nav button.active { background: var(--wash); color: var(--wine); }
+body main { width: 100%; max-width: 870px; padding: 36px 28px 60px; }
+main:has(#discover-view:not([hidden])) { max-width: 870px; padding-top: 36px; }
+main h1 {
+  font: 670 clamp(28px, 4vw, 38px)/1.13 system-ui, sans-serif;
+  letter-spacing: -.035em;
+  margin: 0;
+  text-wrap: balance;
+}
+main h2, .plan-start h2, #shortlist-heading {
+  font: 660 20px/1.25 system-ui, sans-serif;
+  letter-spacing: -.015em;
+}
+main h3, #discover-view .card h3 {
+  font: 670 19px/1.28 system-ui, sans-serif;
+  letter-spacing: -.02em;
+}
+main .primary, main .secondary { min-height: 44px; border-radius: 7px; }
+main .primary { background: var(--wine); color: white; }
+main .primary:hover { background: #173a61; }
+main .secondary { background: var(--card); border: 1px solid var(--line); }
+main .text-button { min-height: 44px; overflow-wrap: anywhere; }
+.view-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 18px;
+  margin: 0 0 20px;
+}
+
+/* Discover */
+#discover-view .discover-heading { margin-bottom: 12px; }
+#discover-view .discover-heading h1 {
+  font: 670 clamp(34px, 4.5vw, 56px)/1.13 system-ui, sans-serif;
+  max-width: 18ch;
+  text-wrap: pretty;
+}
+#guide-context { margin: 0 0 14px; }
+.guide-picker summary { font-size: 14px; }
+.guide-picker summary strong { color: var(--wine); }
+.guide-choices { max-width: 492px; border-radius: 8px; }
+.plan-composer { border-color: #aabac7; padding-inline: 15px 10px; border-radius: 12px; }
+#discover-view #occasion { min-height: 66px; }
+#discover-view .plan-message.user, #welcome-tour { background: #e4eef5; }
+#welcome-tour { color: var(--ink); }
+#welcome-tour p, #discover-view #welcome-tour #tour-skip { color: var(--ink); }
+#welcome-tour .secondary { border-color: #8497a5; }
+.tour-target { outline-color: var(--wine); }
+
+.occasion-starters { margin: 23px 0 3px; }
+.planning-pane:has(#plan-messages:not([hidden])) .occasion-starters { display: none; }
+.occasion-starters h2 { margin: 0 0 12px; font-size: 17px; }
+.occasion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  max-width: 660px;
+}
+.occasion-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  min-width: 0;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  padding: 0;
+  text-align: left;
+  font: 650 13px/1.27 system-ui, sans-serif;
+}
+.occasion-grid button:hover span { color: var(--wine); text-decoration: underline; text-underline-offset: 3px; }
+.occasion-grid img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1.14;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 7px;
+}
+.occasion-grid span { display: block; padding-bottom: 4px; }
+#discover-view .plan-options { margin-top: 4px; }
+#discover-view #try-demo { text-decoration: underline; text-underline-offset: 3px; }
+#discover-view .card.has-photo { grid-template-columns: 72px minmax(0, 1fr); column-gap: 13px; }
+#discover-view .card .place-photo { grid-column: 1; grid-row: 1; width: 72px; height: 76px; border-radius: 8px; }
+#discover-view .card.has-photo .card-body { grid-column: 2; grid-row: 1; }
+#discover-view .card-source { margin: 0 0 3px; color: var(--muted); font-weight: 600; }
+#discover-view .card .note { margin-top: 6px; font: 14px/1.5 system-ui, sans-serif; }
+
+/* Saved places */
+#guide-storage-note { color: var(--muted); margin: 0 0 9px; font-size: 14px; }
+#queue-summary { margin: 0 0 8px; color: var(--muted); }
+#places-view .saved-list { display: block; border-top: 1px solid var(--line); margin-bottom: 20px; }
+#places-view .saved-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  margin: 0;
+  padding: 14px 0 12px;
+  gap: 8px 12px;
+}
+#places-view .saved-row.has-photo { grid-template-columns: 72px minmax(0, 1fr) auto; }
+.saved-row .place-photo { width: 72px; height: 76px; object-fit: cover; border-radius: 8px; margin-top: 2px; }
+#places-view .saved-row h3 { font-size: 18px; }
+#places-view .saved-row p { font-size: 13px; max-width: 52ch; }
+#places-view .saved-place-actions { margin: 0; min-width: 0; }
+#places-view .saved-place-actions summary { min-height: 44px; align-content: center; color: var(--wine); font-size: 13px; }
+#places-view .saved-place-actions[open] { grid-column: 1 / -1; }
+#places-view .saved-place-actions .actions { margin: 4px 0 0; gap: 5px 10px; }
+#places-view .saved-place-actions .actions button { width: auto; flex: none; min-height: 44px; font-size: 13px; padding: 0 9px; }
+#places-view .place-selection-toolbar { border: 0; background: none; padding: 0; }
+.utility-group { border-top: 1px solid var(--line); padding: 4px 0 8px; margin: 0; }
+.utility-group > summary { min-height: 49px; align-content: center; font-weight: 650; }
+.utility-group:has(+ :not(.utility-group)) { border-bottom: 1px solid var(--line); }
+#places-view .portal-grid { grid-template-columns: 1fr; gap: 12px; margin: 0; }
+#places-view .portal { border: 0; background: none; padding: 13px 0; margin: 0; }
+#places-view .portal + .portal { border-top: 1px solid var(--line); }
+
+/* Friends and profile */
+#friends-view .account-panel, #account-view .account-panel {
+  border: 0;
+  border-radius: 0;
+  padding: 14px 0 13px;
+  margin: 0;
+  background: none;
+  max-width: none;
+}
+#friends-view .account-panel h2, #account-view .account-panel h2 { margin: 0 0 8px; }
+#friends-view .account-panel p, #account-view .account-panel p { margin: 4px 0 8px; max-width: 58ch; }
+#friends-view .friends-grid { display: block; margin-top: 10px; }
+#friends-view #friends-following { padding-top: 0; }
+#friends-requests, #circle-request { border-top: 1px solid var(--line); }
+#friends-view .friend-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px 10px;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+#friends-view .friend-row > p { margin: 0; overflow-wrap: anywhere; }
+#friends-view .friend-identity { display: flex; gap: 9px; align-items: center; min-width: 0; }
+.person-label { min-width: 0; display: grid; gap: 2px; }
+.person-label strong { font-weight: 650; font-size: 14px; overflow-wrap: anywhere; }
+.person-label span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.person-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--wash);
+  color: var(--wine);
+  font-size: 14px;
+  font-weight: 700;
+}
+#friends-view .friend-row .actions { margin: 0; justify-content: flex-end; gap: 4px 8px; }
+#friends-view .friend-row .secondary { background: none; color: var(--wine); }
+#friends-view .friend-row .text-button { color: var(--muted); font-size: 12px; padding-inline: 4px; }
+#friends-status:empty, #account-status:empty { margin: 0; display: none; }
+.profile-identity { display: grid; gap: 2px; padding: 5px 0 17px; }
+.profile-identity strong { font-weight: 680; font-size: 19px; overflow-wrap: anywhere; }
+.profile-identity #profile-display-handle, .profile-identity p { color: var(--muted); margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.profile-identity p { margin-top: 11px; max-width: 43ch; }
+.profile-name-row { display: flex; align-items: center; gap: 12px; }
+.profile-name-row > div { display: grid; gap: 1px; min-width: 0; }
+.profile-name-row .person-avatar { width: 44px; height: 44px; font-size: 17px; }
+#account-member form { max-width: 460px; margin-bottom: 15px; }
+#guide-settings p { max-width: 54ch; }
+.account-quick-links { margin-top: 12px; }
+
+@media (min-width: 761px) {
+  body { padding-inline-start: 210px; }
+  .topbar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 10;
+    width: 210px;
+    margin: 0;
+    padding: 29px 15px 20px;
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 25px;
+  }
+  .topbar .wordmark, .topbar .local-label { margin-inline: 10px; }
+  .topbar nav { display: grid; gap: 5px; }
+  .topbar nav button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    margin: 0;
+    padding: 7px 10px;
+    color: var(--muted);
+    text-align: left;
+    border: 0;
+    border-radius: 6px;
+  }
+  .topbar nav svg { display: block; width: 19px; height: 19px; }
+  main:has(#discover-view:not([hidden])), body main { padding-top: 49px; }
+  footer { margin-inline: 28px; }
+}
+
+@media (max-width: 760px) {
+  body main, main:has(#discover-view:not([hidden])) {
+    min-height: calc(100svh - 124px - env(safe-area-inset-bottom));
+    padding: 22px 20px 39px;
+  }
+  .topbar { min-height: 55px; padding-block: 10px; border-bottom: 1px solid var(--line); }
+  .topbar .wordmark { font-size: 24px; }
+  .topbar .local-label { display: none; }
+  #discover-view .discover-heading h1 { font-size: clamp(34px, 9vw, 42px); }
+  #places-view .saved-row.has-photo { grid-template-columns: 58px minmax(0, 1fr) auto; column-gap: 9px; }
+  .saved-row .place-photo { width: 58px; height: 64px; }
+  #friends-view .friend-row { gap: 6px; }
+  #friends-view .friend-row .secondary { padding-inline: 8px; }
+}
+
+@media (max-width: 360px) {
+  #places-view .saved-row.has-photo { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 6px; }
+  .saved-row .place-photo { width: 48px; height: 54px; }
+  #friends-view .friend-row { grid-template-columns: minmax(0, 1fr); }
+  #friends-view .friend-row .actions { justify-content: flex-start; }
+}

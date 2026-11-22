@@ -76,3 +76,19 @@ Minglo's profile URL redirected to sign-in, so the signed-in reference could not
 Clock checkpoints span 10:49:35 PM to 11:01:50 PM America/New_York, with tool waits included. This is estimated observed session coverage. Earlier unobserved time is excluded and weekly hours still await reconciliation.
 
 The November 21 GitHub publication session was first observed at 11:02:41 PM America/New_York. All 80 tests passed again before staging. Clock coverage through 11:02:47 PM is an estimated partial session, including tool waits. Weekly hours await reconciliation.
+
+### Reference-led Discover flow, November 21
+
+This pass uses a single conversation composer with Send inside it and approved friend guides available beside it. Occasion starters fill a draft for review. The shortlist shows the selected guide, the saver and their note. Place details contain the AI explanation, recorded visit and recommendation status, available Google information, and the place's Maps link. The tour points to the guide chooser, composer and shortlist. Pi and Thumbtack informed the conversation entry. Corner and Luma informed guide browsing and attribution. Beli informed the compact shortlist.
+
+Chrome desktop and 390px phone checks used fictional accounts and places, including approved guide selection, drafting before sending, a shortlist, Maps in place details, back navigation, sample isolation, and tour replay. The friend-picker regression test verifies that pending access cannot open a guide and that approved access still uses the server. The picker is blocked from analytics replay. Fixture-based browser checks did not use the hosted sign-in or live providers.
+
+Clock checkpoints span 11:32:50 PM to 11:39:52 PM America/New_York. This is estimated session coverage including tool waits. The earlier approval and reference-reading threads are not counted in this interval. Weekly hours await reconciliation.
+
+### Neighborhood guide layout, November 22
+
+Applied the reviewed question-led Discover layout to the prototype. Pi and Thumbtack informed the photo starters and composer. Beli, Luma and corner informed the compact lists and the placement of saver attribution. The occasion photos are generated illustrations of fictional scenes. Saved places and recommendations use the existing Google venue photo when one is available. The prototype preserves the account-guide permission checks and keeps the guide picker blocked from analytics replay.
+
+The 45 JavaScript and 36 Python tests passed. Chrome passed the desktop and 390px phone checks with fictional data for the composer, editable occasion starters, approved friend guide, shortlist and Maps link, saved-place management, profile editing, and tour replay. The [updated Discover screenshot](../docs/assets/build-3-discover-guide.jpg) shows a fictional signed-in guide. Hosted sign-in and live recommendations were outside the browser fixture.
+
+Clock checkpoints for the source changes were observed from 12:00:58 to 12:03:05 AM America/New_York, approximately two minutes of estimated session coverage including short waits. Later verification and publication waits are excluded from this estimate. Weekly hours await reconciliation.

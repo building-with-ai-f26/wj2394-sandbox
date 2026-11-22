@@ -15,13 +15,13 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       googleReviews: (place._google?.reviews || []).map(review => review.text?.text || ''),
       tags: place.tags, googleReviewTags: place.googleReviewTags || []}));
   }
-  async function request(route, body) {
+  async function request(route, body, context) {
     const owner = getOwner();
     if(owner) {route = route.replace('/api/plan','/api/account/plan');body = {...body,ownerId:owner.id};}
     const response = await fetch(route, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     const result = await response.json();
     if(!response.ok) {
-      if(owner && (response.status === 401 || response.status === 403))onAccessDenied();
+      if(context === revision && owner && (response.status === 401 || response.status === 403))onAccessDenied();
       throw new Error(result.error || 'The conversation is temporarily unavailable.');
     }
     return result;
@@ -48,6 +48,11 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       status.textContent = 'Start a new plan to continue chatting.';
       return;
     }
+    const guide = guideSummary();
+    if(!guide.length) {
+      status.textContent = 'This guide is empty. Add saved places or choose another guide.';
+      return;
+    }
     const context = revision;
     busy = true;
     send.disabled = true;
@@ -57,7 +62,7 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
     input.value = '';
     try {
       const history = [...messages, turn];
-      const candidates = await request('/api/plan/shortlist', {messages:history, places:guideSummary()});
+      const candidates = await request('/api/plan/shortlist', {messages:history, places:guide}, context);
       if(context !== revision)return;
       if(!candidates.matches.length) {
         const reply = 'I couldn’t identify candidates for that change in your saved guide. Try describing the cuisine and area together, such as “casual Japanese food in NYC.”';
@@ -73,7 +78,7 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       const details = guideSummary();
       const selected = details.filter(place => candidates.matches.some(match => match.id === place.id));
       status.textContent = 'Finding the best fit from the available details…';
-      const result = await request('/api/plan', {messages:history, places:selected});
+      const result = await request('/api/plan', {messages:history, places:selected}, context);
       if (context !== revision) return;
       messages.push(turn, {role: 'assistant', content: result.reply});
       append('assistant', result.reply);
@@ -85,6 +90,7 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       input.value = text;
       // Failed turns are excluded from subsequent model history.
       transcript.lastElementChild?.remove();
+      transcript.hidden = !messages.length;
     } finally {
       busy = false;
       send.disabled = false;
