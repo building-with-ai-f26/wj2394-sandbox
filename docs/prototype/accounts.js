@@ -1,4 +1,43 @@
 /* Account tokens live on the local server. Device imports move only on explicit copy. */
+function renderPersonAvatar(container, profile, preview) {
+  const identity = profile.display_name || profile.username || '';
+  const initial = [...identity.trim()][0]?.toUpperCase() || '';
+  container.textContent = initial;
+  const source = preview === undefined && profile.has_photo && profile.id
+    ? '/api/account/avatar?owner=' + encodeURIComponent(profile.id) + (profile.photo_version ? '&v=' + profile.photo_version : '')
+    : preview;
+  if(!source) return;
+  const image = document.createElement('img');
+  image.alt = '';
+  image.loading = 'lazy';
+  image.addEventListener('error', () => {
+    if(image.parentElement===container) container.textContent = initial;
+  }, {once:true});
+  image.src = source;
+  container.textContent = '';
+  container.append(image);
+}
+
+async function resizeProfilePhoto(file) {
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>8_000_000) {
+    throw new Error('Choose a JPEG, PNG or WebP photo under 8 MB.');
+  }
+  const image = await createImageBitmap(file).catch(() => {
+    throw new Error('This photo could not be opened. Try a different file.');
+  });
+  try {
+    const size = Math.min(image.width,image.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = 192;
+    canvas.height = 192;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#f7f6f1';
+    context.fillRect(0,0,192,192);
+    context.drawImage(image,(image.width-size)/2,(image.height-size)/2,size,size,0,0,192,192);
+    return canvas.toDataURL('image/jpeg',0.84);
+  } finally {image.close();}
+}
+
 function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}, onReady = () => {}}) {
   const $ = selector => document.querySelector(selector);
   let signedIn = false;
@@ -8,13 +47,32 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   let saving = null;
   let busy = false;
   let blocked = false;
+  let currentProfile = {};
+  let photoDraft;
+  let photoVersion = 0;
+  let resizing = false;
   function say(message) { $('#account-status').textContent = message; }
   function renderProfile(profile = {}) {
+    currentProfile = profile;
     const name = profile.display_name || '';
     const username = profile.username || '';
     $('#profile-display-name').textContent = name || 'Your profile';
     $('#profile-display-handle').textContent = username ? `@${username}` : 'Choose a username to help friends find you.';
-    $('#profile-avatar').textContent = [...name.trim()][0]?.toUpperCase() || '';
+    $('#profile-display-bio').textContent = profile.bio || '';
+    $('#profile-display-bio').hidden = !profile.bio;
+    $('#profile-bio').value = profile.bio || '';
+    $('#profile-personal-details').hidden = !profile.profile_fields;
+    photoDraft = undefined;
+    photoVersion++;
+    resizing = false;
+    $('#profile-photo').value = '';
+    $('#profile-photo-status').textContent = '';
+    renderPersonAvatar($('#profile-avatar'),profile);
+    renderPhotoDraft();
+  }
+  function renderPhotoDraft() {
+    renderPersonAvatar($('#profile-photo-preview'),currentProfile,photoDraft);
+    $('#profile-photo-remove').hidden = photoDraft === undefined ? !currentProfile.has_photo : !photoDraft;
   }
   async function request(path, body) {
     const response = await fetch('/api/account/' + path, body === undefined ? {} : {
@@ -33,6 +91,9 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
     $('#account-copy').textContent = `Copy ${getDevicePlaces().length} device places to my account`;
     $('#account-copy').disabled = busy || !getDevicePlaces().length;
     $('#account-google').disabled = busy;
+    $('#profile-save').disabled = busy || resizing;
+    $('#profile-photo').disabled = busy;
+    $('#profile-photo-remove').disabled = busy;
     $('#guide-mode-label').textContent = mode === 'account' ? 'Your private account guide' : 'Your device guide';
     $('#guide-storage-note').textContent = mode === 'account'
       ? 'Your account guide is private. Changes save to your account. Export a backup anytime.'
@@ -159,12 +220,52 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   }));
   $('#account-profile-form').addEventListener('submit', event => {
     event.preventDefault();
+    if(resizing) return;
     action(async () => {
       const profile = {display_name:$('#profile-name').value.trim(),username:$('#profile-username').value.trim()};
-      await request('profile',profile);
-      renderProfile(profile);
+      if(currentProfile.profile_fields) {
+        profile.bio = $('#profile-bio').value.trim();
+        if(photoDraft !== undefined) profile.photo_data = photoDraft;
+      }
+      const result = await request('profile',profile);
+      renderProfile({...result.profile,photo_version:Date.now()});
       say('Your private profile is saved.');
     });
+  });
+  $('#profile-photo').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if(!file) return;
+    const version = ++photoVersion;
+    resizing = true;
+    $('#profile-save').disabled = true;
+    $('#profile-photo-status').textContent = 'Preparing photo…';
+    try {
+      const photo = await resizeProfilePhoto(file);
+      if(version!==photoVersion) return;
+      photoDraft = photo;
+      renderPhotoDraft();
+      $('#profile-photo-status').textContent = 'Save profile to use this photo.';
+    } catch(error) {
+      if(version===photoVersion) {
+        $('#profile-photo').value = '';
+        $('#profile-photo-status').textContent = error.message;
+      }
+    } finally {
+      if(version===photoVersion) {
+        resizing = false;
+        $('#profile-save').disabled = busy;
+      }
+    }
+  });
+  $('#profile-photo-remove').addEventListener('click', () => {
+    photoVersion++;
+    resizing = false;
+    photoDraft = null;
+    $('#profile-photo').value = '';
+    $('#profile-save').disabled = busy;
+    $('#profile-photo-status').textContent = 'Save profile to remove your photo.';
+    renderPhotoDraft();
+    $('#profile-photo').focus();
   });
   $('#account-copy').addEventListener('click', () => action(async () => {
     await flush();

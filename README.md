@@ -127,7 +127,9 @@ Use `node --test tests/accounts.test.cjs` and `python -m unittest discover -s te
 
 ## Approved friends
 
-Run `supabase/migrations/20261110_approved_followers.sql` once after the private-account migration. In Friends, enter an exact username to request access. Only the guide owner can approve incoming requests. Approved access is one-way. Owners can decline requests or remove access, and readers can cancel requests or unfollow.
+Run `supabase/migrations/20261110_approved_followers.sql` once after the private-account migration. Apply `supabase/migrations/20261122_friend_profiles.sql` next to enable the exact-username profile preview and optional photo and bio. The new server preserves account sign-in if the Friends migration is pending.
+
+In Friends, find a profile by exact username and request to follow it. Only the guide owner can approve incoming requests. Approved readers can search the shown places and view the owner's optional photo and bio. Owners can decline requests or remove access. Readers can cancel requests or stop following. The rollback-only suite `supabase/tests/friend_profiles.sql` covers visibility before and after approval.
 
 Approved readers receive only places shown in the account guide. Hide place removes an entry from that shared view. The database filters hidden entries before returning a guide. Raw private guide rows remain owner-only, and shared reads use a narrowly scoped database function that checks the approved connection. Profile discovery exposes the display name and exact requested username. Following requests do not send email notifications.
 

@@ -10,6 +10,7 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
   function guideSummary() {
     return getPlaces().map(place => ({id: String(place.id), url:place.url, name: place.name, category: place.category,
       neighborhood: place.neighborhood, price: place.price, note: place.note, status: place.status,
+      ...(place.website ? {publicDescription:place.description} : {}),
       googleAddress: place._google?.formattedAddress || '', googleCategory: place._google?.primaryTypeDisplayName?.text || '',
       googleDescription: place._google?.editorialSummary?.text || '', googlePriceRange: place._google?.priceRange || null,
       googleReviews: (place._google?.reviews || []).map(review => review.text?.text || ''),
@@ -32,6 +33,8 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
     bubble.textContent = content;
     transcript.append(bubble);
     transcript.hidden = false;
+    transcript.scrollTop = transcript.scrollHeight;
+    return bubble;
   }
   function reset() {
     revision++;
@@ -56,9 +59,10 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
     const context = revision;
     busy = true;
     send.disabled = true;
-    status.textContent = 'Thinking through your guide…';
+    status.textContent = '';
     const turn = {role: 'user', content: text};
-    append('user', text);
+    const question = append('user', text);
+    const progress = append('assistant', 'Thinking through your guide…');
     input.value = '';
     try {
       const history = [...messages, turn];
@@ -67,31 +71,36 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       if(!candidates.matches.length) {
         const reply = 'I couldn’t identify candidates for that change in your saved guide. Try describing the cuisine and area together, such as “casual Japanese food in NYC.”';
         messages.push(turn,{role:'assistant',content:reply});
+        progress.remove();
         append('assistant',reply);
         onResults({reply,matches:[]});
         status.textContent = 'You can refine the plan below.';
         return;
       }
-      status.textContent = 'Checking Google Maps details for your plan…';
+      progress.textContent = 'Checking available details for your plan…';
+      transcript.scrollTop = transcript.scrollHeight;
       const coverage = await preparePlaces(candidates.matches.map(match => match.id));
       if(context !== revision)return;
       const details = guideSummary();
       const selected = details.filter(place => candidates.matches.some(match => match.id === place.id));
-      status.textContent = 'Finding the best fit from the available details…';
+      progress.textContent = 'Finding the best fit from the available details…';
+      transcript.scrollTop = transcript.scrollHeight;
       const result = await request('/api/plan', {messages:history, places:selected}, context);
       if (context !== revision) return;
       messages.push(turn, {role: 'assistant', content: result.reply});
+      progress.remove();
       append('assistant', result.reply);
       onResults(result);
-      status.textContent = (coverage.sample ? 'Suggestions use fictional sample details. ' : `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. `) + (coverage.error ? 'Google details are unavailable for some places. Suggestions use the saved notes and details currently available. ' : '') + 'Keep chatting to refine the shortlist.';
+      status.textContent = (coverage.sample ? 'Suggestions use the public details in the NYC sample guide. ' : `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. `) + (coverage.error ? 'Google details are unavailable for some places. Suggestions use the saved notes and details currently available. ' : '') + 'Keep chatting to refine the shortlist.';
     } catch (error) {
       if (context !== revision) return;
       status.textContent = error instanceof SyntaxError ? 'The conversation could not reach Inner Table. Please try again shortly.' : error.message;
       input.value = text;
       // Failed turns are excluded from subsequent model history.
-      transcript.lastElementChild?.remove();
+      question.remove();
       transcript.hidden = !messages.length;
     } finally {
+      progress.remove();
       busy = false;
       send.disabled = false;
     }

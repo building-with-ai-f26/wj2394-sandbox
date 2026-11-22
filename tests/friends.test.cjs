@@ -7,11 +7,12 @@ const person = {id:'fictional-friend',display_name:'Fictional Friend',username:'
 function setup(api) {
   const elements = new Map(), events = {}, calls = [], selected = [], cleared = [];
   function node() {
-    return {children:[],listeners:{},value:'',textContent:'',hidden:false,
+    return {children:[],listeners:{},dataset:{},value:'',textContent:'',hidden:false,
       append(...children) {this.children.push(...children);},
       replaceChildren(...children) {this.children = children;},
       addEventListener(type,handler) {this.listeners[type] = handler;},
-      setAttribute() {},
+      setAttribute() {}, removeAttribute() {}, focus() {},
+      fire(type) {return this.listeners[type]?.({preventDefault(){}});},
       click() {return this.listeners.click?.();}
     };
   }
@@ -25,6 +26,7 @@ function setup(api) {
       return {ok:!result.error,status:result.status || 200,json:async()=>result};
     }
   });
+  vm.runInContext(fs.readFileSync(require.resolve('../docs/prototype/accounts.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(require.resolve('../docs/prototype/friends.js'),'utf8'),context);
   const controller = context.createFriends({beforeSwitch:async()=>{},onSelect:guide=>selected.push(guide),onClear:()=>cleared.push(true)});
   function button(container,label) {
@@ -45,7 +47,7 @@ test('pending requests never offer a readable guide',async () => {
 test('approval submits only the selected requester identity',async () => {
   const app = setup(async url=>url.endsWith('/connections') ? {following:[],outgoing:[],requests:[person],followers:[]} : {ok:true});
   await app.controller.setSession(true);
-  await app.button('#friends-requests','Approve').onclick();
+  await app.button('#friends-requests','Approve request').onclick();
   const approval = app.calls.find(call=>call.url.endsWith('/approve'));
   assert.deepEqual(approval.body,{id:person.id});
 });
@@ -90,4 +92,42 @@ test('the Discover picker only opens an approved guide through the server',async
   await app.controller.openGuide(person.id);
   assert.deepEqual(app.calls.at(-1).body,{ownerId:person.id});
   assert.equal(app.controller.getOwner().id,person.id);
+});
+
+test('finding an exact handle previews an identity before sending an ID-bound request',async () => {
+  let requested = false, approved = false;
+  const app = setup(async url => {
+    if(url.endsWith('/connections')) return {following:approved?[person]:[],outgoing:requested&&!approved?[person]:[],requests:[],followers:[]};
+    if(url.endsWith('/find-friend')) return {...person,connection_status:'none'};
+    if(url.endsWith('/follow')) {requested=true;return {...person,approved:false};}
+  });
+  await app.controller.setSession(true);
+  app.element('#friend-username').value = '@Fixture_Friend';
+  await app.element('#friend-request-form').fire('submit');
+  assert.equal(app.calls.some(call=>call.url.endsWith('/follow')),false);
+  await app.button('#friend-preview','Request to follow').onclick();
+  assert.deepEqual(app.calls.find(call=>call.url.endsWith('/follow')).body,{username:person.username,expected_id:person.id});
+  assert.ok(app.button('#friend-preview','Requested'));
+  assert.ok(app.button('#friends-outgoing','Cancel request'));
+  approved=true;
+  await app.controller.refresh();
+  assert.ok(app.button('#friend-preview','Search guide'));
+  assert.ok(app.button('#friends-following','Search guide'));
+});
+
+test('editing a username discards a preview still being looked up',async () => {
+  let resolveLookup;
+  const app = setup(async url=>url.endsWith('/connections')
+    ? {following:[],outgoing:[],requests:[],followers:[]}
+    : new Promise(resolve=>{resolveLookup=resolve;}));
+  await app.controller.setSession(true);
+  const input = app.element('#friend-username');
+  input.value=person.username;
+  const lookup=app.element('#friend-request-form').fire('submit');
+  input.value='different_friend';
+  input.fire('input');
+  resolveLookup({...person,connection_status:'none'});
+  await lookup;
+  assert.equal(app.element('#friend-preview').hidden,true);
+  assert.equal(app.button('#friend-preview','Request to follow'),undefined);
 });

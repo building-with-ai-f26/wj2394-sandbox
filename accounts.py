@@ -9,6 +9,7 @@ import re
 import secrets
 import threading
 import time
+from binascii import Error as Base64Error
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, quote, urlencode
 from urllib.request import Request, urlopen
@@ -17,12 +18,27 @@ from uuid import UUID
 COOKIE = 'inner_table_session'
 OAUTH_COOKIE = 'inner_table_google'
 TAGS = {'conversation', 'fun', 'special', 'date', 'group'}
+PROFILE_PHOTO_PREFIX = 'data:image/jpeg;base64,'
+PROFILE_PHOTO_LIMIT = 120_023
 
 
 class AccountError(Exception):
     def __init__(self, message, status=400):
         super().__init__(message)
         self.status = status
+
+
+def profile_photo_bytes(value):
+    message = 'Choose a JPEG profile photo under 90 KB after resizing.'
+    if not isinstance(value, str) or not value.startswith(PROFILE_PHOTO_PREFIX) or len(value) > PROFILE_PHOTO_LIMIT:
+        raise AccountError(message)
+    try:
+        image = base64.b64decode(value[len(PROFILE_PHOTO_PREFIX):], validate=True)
+    except (ValueError, Base64Error):
+        raise AccountError(message) from None
+    if len(image) < 20 or not image.startswith(b'\xff\xd8\xff') or not image.endswith(b'\xff\xd9'):
+        raise AccountError(message)
+    return image
 
 
 def clean_places(places):
@@ -188,6 +204,11 @@ class Accounts:
                 raise AccountError(message, status) from None
             if detail.get('code') == '23505':
                 raise AccountError('That username is already taken.') from None
+            if detail.get('code') in ('42703', 'PGRST202', 'PGRST204') and (
+                    path.startswith('/rest/v1/profiles?') or path in (
+                        '/rest/v1/rpc/lookup_guide_profile', '/rest/v1/rpc/get_guide_profile_photo',
+                        '/rest/v1/rpc/request_guide_follow')):
+                raise AccountError('The new profile tools need the Friends database update.', 501) from None
             if status == 429:
                 raise AccountError('Please wait before trying again.', 429) from None
             if path.startswith('/auth/'):
@@ -240,8 +261,35 @@ class Accounts:
             raise
 
     def profile(self, session):
-        rows = self.request('/rest/v1/profiles?select=id,display_name,username&id=eq.' + session['user']['id'], token=self.token(session))
-        return rows[0] if rows else {'id': session['user']['id'], 'display_name': '', 'username': ''}
+        token = self.token(session)
+        owner = session['user']['id']
+        route = '/rest/v1/profiles?select={}&id=eq.' + owner
+        fields_available = True
+        try:
+            rows = self.request(route.format('id,display_name,username,bio,photo_data'), token=token)
+        except AccountError as error:
+            if error.status != 501:
+                raise
+            fields_available = False
+            rows = self.request(route.format('id,display_name,username'), token=token)
+        profile = dict(rows[0]) if rows else {'id': owner, 'display_name': '', 'username': '', 'bio': ''}
+        profile['has_photo'] = bool(profile.pop('photo_data', None))
+        profile['profile_fields'] = fields_available
+        return profile
+
+    def profile_photo(self, owner_id, cookie):
+        _, session = self.get_session(cookie)
+        if not session:
+            raise AccountError('Sign in to view the profile photo.', 401)
+        try:
+            owner_id = str(UUID(owner_id))
+        except (ValueError, TypeError, AttributeError):
+            raise AccountError('Invalid profile.') from None
+        with session['lock']:
+            result = self.request('/rest/v1/rpc/get_guide_profile_photo', {'p_owner': owner_id}, token=self.token(session))
+        if not result or not result.get('photo_data'):
+            raise AccountError('This profile has no photo.', 404)
+        return profile_photo_bytes(result['photo_data'])
 
     def followed_guide(self, owner_id, cookie):
         _, session = self.get_session(cookie)
@@ -307,11 +355,19 @@ class Accounts:
         with session['lock']:
             if method == 'POST' and path == '/api/account/connections':
                 return self.request('/rest/v1/rpc/guide_connections', {}, token=self.token(session)), None
-            if method == 'POST' and path == '/api/account/follow':
+            if method == 'POST' and path in ('/api/account/find-friend', '/api/account/follow'):
                 username = body.get('username')
                 if not isinstance(username, str) or not re.fullmatch(r'[a-z0-9_]{3,30}', username):
                     raise AccountError('Enter your friend’s exact username.')
-                return self.request('/rest/v1/rpc/request_guide_follow', {'p_username':username}, token=self.token(session)), None
+                lookup = path.endswith('/find-friend')
+                function = 'lookup_guide_profile' if lookup else 'request_guide_follow'
+                params = {'p_username': username}
+                if not lookup and 'expected_id' in body:
+                    try:
+                        params['p_expected_id'] = str(UUID(body['expected_id']))
+                    except (ValueError, TypeError, AttributeError):
+                        raise AccountError('Find this profile again before sending a request.') from None
+                return self.request('/rest/v1/rpc/' + function, params, token=self.token(session)), None
             if method == 'POST' and path in ('/api/account/approve', '/api/account/revoke', '/api/account/unfollow'):
                 try:
                     other_id = str(UUID(body.get('id')))
@@ -329,7 +385,18 @@ class Accounts:
                 name, username = body.get('display_name'), body.get('username')
                 if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or not isinstance(username, str) or not re.fullmatch(r'[a-z0-9_]{3,30}', username):
                     raise AccountError('Use a display name and a username of 3–30 lowercase letters, numbers or underscores.')
-                self.request('/rest/v1/profiles?on_conflict=id', {'id': session['user']['id'], 'display_name': name.strip(), 'username': username},
+                profile = {'id': session['user']['id'], 'display_name': name.strip(), 'username': username}
+                if 'bio' in body:
+                    bio = body['bio']
+                    if not isinstance(bio, str) or len(bio.strip()) > 160:
+                        raise AccountError('Keep your bio to 160 characters.')
+                    profile['bio'] = bio.strip()
+                if 'photo_data' in body:
+                    photo = body['photo_data']
+                    if photo is not None:
+                        profile_photo_bytes(photo)
+                    profile['photo_data'] = photo
+                self.request('/rest/v1/profiles?on_conflict=id', profile,
                              token=self.token(session), prefer='resolution=merge-duplicates,return=minimal')
                 return {'profile': self.profile(session)}, None
             if method == 'POST' and path == '/api/account/guide':

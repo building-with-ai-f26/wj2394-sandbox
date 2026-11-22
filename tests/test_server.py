@@ -99,6 +99,21 @@ class HTTPTests(unittest.TestCase):
             self.assertFalse(data['configured'])
             self.assertNotIn('key', data)
 
+    def test_profile_photos_are_same_origin_uncached_images(self):
+        with patch.object(self.server.accounts,'profile_photo',return_value=b'jpeg fixture') as photo:
+            with urlopen(self.base + '/api/account/avatar?owner=fixture-owner') as response:
+                self.assertEqual(response.headers['Content-Type'],'image/jpeg')
+                self.assertEqual(response.headers['Cache-Control'],'no-store')
+                self.assertEqual(response.headers['Cross-Origin-Resource-Policy'],'same-origin')
+                self.assertEqual(response.read(),b'jpeg fixture')
+            photo.assert_called_once_with('fixture-owner',None)
+            request = Request(self.base + '/api/account/avatar?owner=fixture-owner',headers={'Sec-Fetch-Site':'cross-site'})
+            with self.assertRaises(HTTPError) as error:
+                urlopen(request)
+            self.assertEqual(error.exception.code,403)
+            error.exception.close()
+            self.assertEqual(photo.call_count,1)
+
     def test_google_callback_accepts_provider_navigation_and_hides_tokens(self):
         from http.client import HTTPConnection
         connection = HTTPConnection('127.0.0.1', self.server.server_port)
