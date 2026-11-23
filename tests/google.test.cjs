@@ -70,7 +70,10 @@ const publicVenues = [
   id,name,url,googlePlaceId:'ChIJfixture'+index,neighborhood:'',source:'Google Takeout CSV'
 }));
 
-function controllerFixture(places, {limit=40, photoStatus=200, detailsStatus=200, storage=new Map()}={}) {
+function controllerFixture(places, {
+  limit=40, photoStatus=200, detailsStatus=200, photoStatuses=[], usageAfterRetry=0,
+  reviewsEnabled=false, deferredDetails=null
+}={}) {
   const nodes=new Map(), calls=[], linked=[];
   const domNode=tag=>({
     tag,children:[],attributes:{},
@@ -78,47 +81,53 @@ function controllerFixture(places, {limit=40, photoStatus=200, detailsStatus=200
     setAttribute(name,value) {this.attributes[name]=value;}
   });
   const callsFor=route=>calls.filter(call=>call.route===route);
-  let active=places;
+  let active=places, statusCalls=0, updates=0;
   const fetch=async (route,options)=>{
-    if(route==='/api/status') return {ok:true,json:async()=>({configured:true,requestLimit:limit,requestsUsed:0})};
+    if(route==='/api/status') {
+      const requestsUsed=statusCalls++ ? usageAfterRetry : 0;
+      return {ok:true,json:async()=>({configured:true,reviewsEnabled,requestLimit:limit,requestsUsed})};
+    }
     if(route.startsWith('/api/places/photo?')) {
       const source=new URL(route,'https://example.test').searchParams.get('name');
-      calls.push({route:'photo',id:source.split('/')[1]});
-      return {ok:photoStatus===200,status:photoStatus,headers:new Headers({'Content-Type':'image/jpeg'}),blob:async()=>new Blob(['photo'],{type:'image/jpeg'})};
+      calls.push({route:'photo',id:source.split('/')[1],source});
+      const status=photoStatuses.shift() ?? photoStatus;
+      if(status==='timeout') throw new DOMException('Timed out', 'TimeoutError');
+      return {ok:status===200,status,headers:new Headers({'Content-Type':'image/jpeg'}),blob:async()=>new Blob(['photo'],{type:'image/jpeg'})};
     }
-    const {placeId:id}=JSON.parse(options.body);
+    const {placeId:id,includeReviews}=JSON.parse(options.body);
     const place=places.find(item=>item.googlePlaceId===id);
     assert.ok(place, 'lookup should use a confirmed public venue identity');
-    calls.push({route:'details',id});
+    calls.push({route:'details',id,includeReviews});
+    const version=callsFor('details').filter(call=>call.id===id).length;
+    if(deferredDetails && version===1) await deferredDetails(id);
     if(detailsStatus!==200) return {ok:false,status:detailsStatus};
     const author={displayName:'Fixture contributor',uri:'https://www.google.com/maps/contrib/123'};
     return {ok:true,json:async()=>({
       usage:{requestLimit:limit,requestsUsed:calls.length},
-      result:{id,googleMapsUri:place.url,photos:[{name:`places/${id}/photos/ref`,authorAttributions:[author]}]}
+      result:{id,googleMapsUri:place.url,photos:[{name:`places/${id}/photos/ref-${version}`,authorAttributions:[author]}]}
     })};
   };
   const context=vm.createContext({URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch,
-    localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
     InnerTableImport:require('../docs/prototype/imports.js'),
     document:{
       createElement:domNode,createTextNode:text=>({textContent:text}),
       querySelector:selector=>{
-        if(!nodes.has(selector)) nodes.set(selector,domNode('div'));
+        if(!nodes.has(selector)) nodes.set(selector,{...domNode('div'),checked:selector==='#google-reviews'});
         return nodes.get(selector);
       }
     }
   });
   vm.runInContext(fs.readFileSync('docs/prototype/google.js','utf8'),context);
   const controller=context.GooglePlaces.createController({
-    getPlaces:()=>active,onLink:(place,id)=>linked.push([place,id]),onUpdate(){}
+    getPlaces:()=>active,onLink:(place,id)=>linked.push([place,id]),onUpdate(){updates++;}
   });
-  return {controller,calls,callsFor,linked,setActive:places=>{active=places;}};
+  return {controller,calls,callsFor,linked,getStatusCalls:()=>statusCalls,getUpdates:()=>updates,setActive:places=>{active=places;}};
 }
 
-test('the import photo queue checks beyond the first five places when allowance is available',async()=>{
+test('the visible photo queue checks beyond the first five places when allowance is available',async()=>{
   const {controller,callsFor}=controllerFixture(publicVenues);
   await controller.start();
-  await controller.enrichImported(publicVenues);
+  await controller.ensureSavedPhotos(publicVenues);
   assert.equal(callsFor('photo').length,7);
   for(const place of publicVenues) {
     assert.ok(controller.photo(place));
@@ -150,12 +159,12 @@ test('a later shortlist can promote an imported photo check held in reserve',asy
   const places=publicVenues.slice(0,4);
   const {controller,calls}=controllerFixture(places,{limit:8});
   await controller.start();
-  await controller.enrichImported(places);
+  await controller.ensureSavedPhotos(places);
   assert.equal(calls.length,4);
-  assert.equal(controller.photoStatus(places[2]),'Photo check pending');
+  assert.equal(controller.photoState(places[2].id),'retryable');
   await controller.checkShortlistPhotos([places[3].id]);
   assert.ok(controller.photo(places[3]));
-  assert.equal(controller.photoStatus(places[2]),'Photo check pending');
+  assert.equal(controller.photoState(places[2].id),'retryable');
   assert.equal(calls.length,6);
   places.forEach(place=>controller.forget(place.id));
 });
@@ -165,7 +174,7 @@ test('the photo endpoint cap leaves the place pending and stops repeated fetches
   const {controller,callsFor}=controllerFixture([place],{photoStatus:429});
   await controller.start();
   await controller.checkShortlistPhotos([place.id]);
-  assert.equal(controller.photoStatus(place),'Photo check pending');
+  assert.equal(controller.photoState(place.id),'retryable');
   assert.equal(controller.photo(place),undefined);
   await controller.checkShortlistPhotos([place.id]);
   assert.equal(callsFor('photo').length,1);
@@ -176,22 +185,108 @@ test('the details endpoint cap also leaves the photo check pending',async()=>{
   const {controller,callsFor}=controllerFixture([place],{detailsStatus:429});
   await controller.start();
   await controller.checkShortlistPhotos([place.id]);
-  assert.equal(controller.photoStatus(place),'Photo check pending');
+  assert.equal(controller.photoState(place.id),'retryable');
   assert.equal(callsFor('photo').length,0);
 });
 
-test('a fresh request allowance resumes an import scan without starting at the first row',async()=>{
-  const places=publicVenues.slice(0,4), storage=new Map();
-  const first=controllerFixture(places,{limit:8,storage});
-  await first.controller.start();
-  await first.controller.enrichImported(places,'scan-position');
-  assert.equal(storage.get('scan-position'),'2');
-  const next=controllerFixture(places,{limit:8,storage});
-  await next.controller.start();
-  await next.controller.enrichImported(places,'scan-position');
-  assert.deepEqual(next.callsFor('photo').map(call=>call.id),places.slice(2).map(place=>place.googlePlaceId));
-  for(const place of places) {
-    first.controller.forget(place.id);
-    next.controller.forget(place.id);
+test('only visible saved rows get photo checks, stopping abandoned rows and prioritizing a shortlist',async()=>{
+  const [visible,abandoned,shortlisted,nextVisible]=publicVenues;
+  let release;
+  const firstDetails=new Promise(resolve=>{release=resolve;});
+  const {controller,callsFor}=controllerFixture(publicVenues,{deferredDetails:id=>id===visible.googlePlaceId ? firstDetails : null});
+  await controller.start();
+  assert.equal(callsFor('details').length,0);
+  const work=controller.ensureSavedPhotos([visible,abandoned]);
+  controller.checkShortlistPhotos([shortlisted.id]);
+  controller.ensureSavedPhotos([nextVisible]);
+  release();
+  await work;
+  assert.deepEqual(callsFor('photo').map(call=>call.id),[shortlisted.googlePlaceId,nextVisible.googlePlaceId]);
+  assert.equal(controller.photoState(abandoned.id),'idle');
+});
+
+test('an unchanged visible queue does not trigger repeated updates',async()=>{
+  const tomino=publicVenues.at(-1);
+  const {controller,callsFor,getUpdates}=controllerFixture([tomino],{limit:2});
+  await controller.start();
+  await controller.ensureSavedPhotos([tomino]);
+  const lastUpdate=getUpdates();
+  await controller.ensureSavedPhotos([{...tomino}]);
+  assert.equal(getUpdates(),lastUpdate);
+  assert.equal(callsFor('details').length,0);
+  assert.equal(controller.photoState(tomino.id),'retryable');
+});
+
+test('expired photo reference refreshes once by confirmed place ID',async()=>{
+  const [mercado]=publicVenues.slice(-2);
+  const {controller,callsFor}=controllerFixture([mercado],{photoStatuses:[404,200]});
+  await controller.start();
+  await controller.checkShortlistPhotos([mercado.id]);
+  assert.equal(controller.photoState(mercado.id),'ready');
+  assert.deepEqual(callsFor('details').map(call=>call.id),[mercado.googlePlaceId,mercado.googlePlaceId]);
+  assert.deepEqual(callsFor('photo').map(call=>call.source.split('/').at(-1)),['ref-1','ref-2']);
+});
+
+test('server photo failure or browser timeout fetches one fresh reference',async()=>{
+  const tomino=publicVenues.at(-1);
+  for(const status of [502,'timeout']) {
+    const {controller,callsFor}=controllerFixture([tomino],{photoStatuses:[status,200]});
+    await controller.start();
+    await controller.checkShortlistPhotos([tomino.id]);
+    assert.equal(controller.photoState(tomino.id),'ready');
+    assert.equal(callsFor('details').length,2);
+    assert.deepEqual(callsFor('photo').map(call=>call.source.split('/').at(-1)),['ref-1','ref-2']);
+    controller.forget(tomino.id);
   }
+});
+
+test('a second expired reference stops and exposes a retry',async()=>{
+  const [mercado]=publicVenues.slice(-2);
+  const {controller,callsFor}=controllerFixture([mercado],{photoStatuses:[400,404,200]});
+  await controller.start();
+  await controller.checkShortlistPhotos([mercado.id]);
+  assert.equal(controller.photoState(mercado.id),'retryable');
+  await controller.checkShortlistPhotos([mercado.id]);
+  assert.equal(callsFor('photo').length,2);
+  await controller.retryPhoto(mercado);
+  assert.equal(controller.photoState(mercado.id),'ready');
+  assert.equal(callsFor('photo').length,3);
+});
+
+test('a manual photo retry rechecks temporary and exhausted allowances',async()=>{
+  const tomino=publicVenues.at(-1);
+  for(const usageAfterRetry of [0,8]) {
+    const {controller,callsFor,getStatusCalls}=controllerFixture([tomino],{limit:8,usageAfterRetry,photoStatuses:[429,200]});
+    await controller.start();
+    await controller.checkShortlistPhotos([tomino.id]);
+    assert.equal(controller.photoState(tomino.id),'retryable');
+    assert.equal(getStatusCalls(),1);
+    await controller.retryPhoto(tomino);
+    assert.equal(getStatusCalls(),2);
+    if(usageAfterRetry) {
+      assert.equal(controller.photoState(tomino.id),'retryable');
+      assert.equal(callsFor('photo').length,1);
+    } else {
+      assert.equal(controller.photoState(tomino.id),'ready');
+      assert.equal(callsFor('photo').length,2);
+    }
+  }
+});
+
+test('saved photo details do not request reviews and the planner can still retrieve them',async()=>{
+  const tomino=publicVenues.at(-1);
+  const {controller,callsFor}=controllerFixture([tomino],{reviewsEnabled:true});
+  await controller.start();
+  await controller.ensureSavedPhotos([tomino]);
+  await controller.prepareForPlan([tomino.id]);
+  await controller.ensureSavedPhotos([tomino]);
+  assert.deepEqual(callsFor('details').map(call=>call.includeReviews),[false,true]);
+  assert.equal(callsFor('photo').length,1);
+});
+
+test('exact name fallback accepts an accent variant while rejecting ambiguity',()=>{
+  const tomino={id:'ChIJTomino',displayName:{text:'Tomiño Taberna Gallega'},formattedAddress:'New York, NY'};
+  const invalidEscape='https://www.google.com/maps/place/Tomino%ZZ';
+  assert.equal(automaticMatch('Tomino Taberna Gallega',[tomino],invalidEscape),tomino);
+  assert.equal(automaticMatch('Tomino Taberna Gallega',[tomino,{...tomino,id:'ChIJBranch'}]),null);
 });

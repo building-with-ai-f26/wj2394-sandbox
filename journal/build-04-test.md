@@ -66,3 +66,14 @@ Friends now previews an exact username before sending an ID-bound request. Guide
 Chrome used two fictional accounts to save a photo and bio, confirm lookup was read-only, send and approve a request, open the guide, and remove access. The page fit at 320, 390 and 1100 pixels. An isolated PostgreSQL run passed all three SQL suites, including unauthorized reads, one-way approval and revocation. The connected Supabase project was outside the test. [Friends phone screenshot](../docs/assets/build-4-friends.png)
 
 Retained timestamps for this work cover approximately 1:23–1:31 a.m. New York time on November 22, or eight minutes of elapsed time including tool waits.
+
+
+### Discover and shortlist design review, November 23
+
+Inner Table should feel like a neighborhood guide kept by friends. Discover keeps the personal opening question in the wordmark’s serif style. The guide picker sits above the composer with a visible Find places action. Real, credited venue thumbnails make the occasion examples a short list. Pi informed the opening, Thumbtack the primary action, Beli the compact place rows, and Corner the real photos. Shortlist rows use thin dividers and put the place name, saver and note ahead of the expanded explanation.
+
+My places queues visible saved spots, including manually added ones. Shortlist results have priority over routine scans. Expired photo references and temporary transport failures get a single retry with fresh place details when the allowance permits. Recoverable failures offer Retry photo. The tour records its first display per account in browser storage, honors earlier completion records and has no Profile replay.
+
+Chrome verified a reload partway through the tour, leaving Discover, a different account, and previously seen flags. The saved-place and approved-friend checks used public venue names with mocked Google and account responses. The 60 JavaScript and 40 Python checks passed. Chrome confirmed the layout at 320, 390 and 1100 pixels. Live photo coverage remains open. [Desktop Discover](../docs/assets/build-4-discover.png) · [Phone shortlist](../docs/assets/build-4-shortlist.png)
+
+Observed checkpoints cover approximately 1:52–1:59 p.m. America/New_York, including tool waits. This is an elapsed work-window estimate. The fixture checks spent $0 in runtime provider charges. Builder hours await reconciliation.

@@ -17,7 +17,12 @@ html { scrollbar-color: #aebbc3 var(--paper); }
 .topbar .wordmark { font-size: 27px; }
 .topbar nav button.active { background: var(--wash); color: var(--wine); }
 body main { width: 100%; max-width: 870px; padding: 36px 28px 60px; }
-main:has(#discover-view:not([hidden])) { max-width: 870px; padding-top: 36px; }
+main:has(#discover-view:not([hidden])) { max-width: 748px; padding-top: 36px; }
+body:has(#discover-view:not([hidden])) .topbar nav button.active {
+  background: transparent;
+  box-shadow: inset 0 -2px var(--wine);
+  border-radius: 0;
+}
 main h1 {
   font: 670 clamp(28px, 4vw, 38px)/1.13 system-ui, sans-serif;
   letter-spacing: -.035em;
@@ -47,74 +52,72 @@ main .text-button { min-height: 44px; overflow-wrap: anywhere; }
 }
 
 /* Discover */
-#discover-view .discover-heading { margin-bottom: 12px; }
+#discover-view .discover-heading { margin-bottom: 8px; }
 #discover-view .discover-heading h1 {
-  font: 670 clamp(34px, 4.5vw, 56px)/1.13 system-ui, sans-serif;
-  max-width: 18ch;
-  text-wrap: pretty;
+  font: 400 clamp(31px, 4.5vw, 42px)/1.14 Georgia, serif;
+  letter-spacing: -.025em;
+  text-wrap: balance;
 }
-#guide-context { margin: 0 0 14px; }
+#guide-context { margin: 0 0 6px; }
 .guide-picker summary { font-size: 14px; }
 .guide-picker summary strong { color: var(--wine); }
-.guide-choices { max-width: 492px; border-radius: 8px; }
-.plan-composer { border-color: #aabac7; padding-inline: 15px 10px; border-radius: 12px; }
+.guide-choices { max-width: 420px; border-radius: 6px; }
+.plan-composer { border-color: #b0b7b6; padding-inline: 13px 9px; border-radius: 8px; }
 #discover-view #occasion { min-height: 66px; }
-#discover-view .plan-message.user, #welcome-tour { background: #e4eef5; }
+#discover-view .plan-message.user { background: #efefea; }
+#discover-view .plan-message.assistant { background: transparent; border-left: 1px solid var(--line); border-radius: 0; }
+#welcome-tour { background: #eef2ed; border-radius: 7px; }
 #welcome-tour { color: var(--ink); }
 #welcome-tour p, #discover-view #welcome-tour #tour-skip { color: var(--ink); }
 #welcome-tour .secondary { border-color: #8497a5; }
 .tour-target { outline-color: var(--wine); }
 
-.occasion-starters { margin: 23px 0 3px; }
+.occasion-starters { margin: 23px 0 0; }
 .planning-pane:has(#plan-messages:not([hidden])) .occasion-starters { display: none; }
-.occasion-starters h2 { margin: 0 0 12px; font-size: 17px; }
-.occasion-grid {
+.occasion-starters h2 { margin: 0 0 8px; font-size: 16px; }
+.occasion-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 11px;
-  max-width: 660px;
+  gap: 16px;
 }
-.occasion-grid button {
+.occasion-list > div { border-top: 1px solid var(--line); padding-top: 8px; }
+.occasion-list button {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
   width: 100%;
-  background: none;
   border: 0;
+  background: none;
   color: var(--ink);
   padding: 0;
   text-align: left;
-  font: 650 13px/1.27 system-ui, sans-serif;
+  font: 650 14px/1.3 system-ui, sans-serif;
 }
-.occasion-grid button:hover span { color: var(--wine); text-decoration: underline; text-underline-offset: 3px; }
-.occasion-grid img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1.14;
-  object-fit: cover;
-  border-radius: 8px;
-  margin-bottom: 7px;
-}
-.occasion-grid span { display: block; padding-bottom: 4px; }
+.occasion-list button:hover span { color: var(--wine); text-decoration: underline; text-underline-offset: 3px; }
+.occasion-list img { flex: none; width: 46px; height: 44px; object-fit: cover; border-radius: 4px; }
 .photo-credit, #places-view .saved-row .photo-credit {
   margin: 5px 0 0;
   color: var(--muted);
-  font: 11px/1.4 system-ui, sans-serif;
+  font: 12px/1.4 system-ui, sans-serif;
   overflow-wrap: anywhere;
 }
 .photo-credit a { color: inherit; font-size: inherit; }
+.photo-credit .photo-retry { font-size: inherit; }
 #discover-view .card .sample-description { font-size: 14px; margin: 6px 0 0; }
 #discover-view .place-links { display: flex; flex-wrap: wrap; gap: 0 16px; }
 #discover-view .plan-options { margin-top: 4px; }
 #discover-view #try-demo { text-decoration: underline; text-underline-offset: 3px; }
-#discover-view .card.has-photo { grid-template-columns: 72px minmax(0, 1fr); column-gap: 13px; }
-#discover-view .card .place-photo { grid-column: 1; grid-row: 1; width: 72px; height: 76px; border-radius: 8px; }
-#discover-view .card.has-photo .card-body { grid-column: 2; grid-row: 1; }
-#discover-view .card-source { margin: 0 0 3px; color: var(--muted); font-weight: 600; }
-#discover-view .card .note { margin-top: 6px; font: 14px/1.5 system-ui, sans-serif; }
+#shortlist-heading, .plan-start h2 { font: 400 29px/1.16 Georgia, serif; }
+#discover-view .card.has-photo { grid-template-columns: 72px minmax(0, 1fr); column-gap: 14px; }
+#discover-view .card .place-photo { grid-column: 1; grid-row: 1; width: 72px; height: 76px; border-radius: 5px; }
+#discover-view .card.has-photo .card-body, #discover-view .card.has-photo .place-more { grid-column: 2; }
+#discover-view .card.has-photo .card-body { grid-row: 1; }
+#discover-view .card h3 { font: 650 19px/1.25 system-ui, sans-serif; }
+#discover-view .card .place-meta { margin: 0 0 5px; }
+#discover-view .card-source { margin: 0 0 2px; color: var(--muted); font-weight: 600; }
+#discover-view .card .note { margin: 1px 0 6px; font: 15px/1.45 Georgia, serif; }
+#discover-view .place-more[open] { padding-bottom: 8px; }
 
 /* Saved places */
 #guide-storage-note { color: var(--muted); margin: 0 0 9px; font-size: 14px; }
@@ -285,11 +288,17 @@ main .text-button { min-height: 44px; overflow-wrap: anywhere; }
   .topbar { min-height: 55px; padding-block: 10px; border-bottom: 1px solid var(--line); }
   .topbar .wordmark { font-size: 24px; }
   .topbar .local-label { display: none; }
-  #discover-view .discover-heading h1 { font-size: clamp(34px, 9vw, 42px); }
+  #discover-view .discover-heading h1 { font-size: clamp(30px, 8vw, 37px); }
   #places-view .saved-row.has-photo { grid-template-columns: 58px minmax(0, 1fr) auto; column-gap: 9px; }
   .saved-row .place-photo { width: 58px; height: 64px; }
   #friends-view .friend-row { gap: 6px; }
   #friends-view .friend-row .secondary { padding-inline: 8px; }
+}
+
+@media (max-width: 520px) {
+  .occasion-list { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .occasion-list > div { padding-block: 7px; }
+  .occasion-list .photo-credit { margin-left: 55px; }
 }
 
 @media (max-width: 460px) {
@@ -298,6 +307,8 @@ main .text-button { min-height: 44px; overflow-wrap: anywhere; }
 }
 
 @media (max-width: 360px) {
+  #discover-view .card.has-photo { grid-template-columns: 60px minmax(0, 1fr); column-gap: 10px; }
+  #discover-view .card .place-photo { width: 60px; height: 66px; }
   #places-view .saved-row.has-photo { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 6px; }
   .saved-row .place-photo { width: 48px; height: 54px; }
   #friends-view .friend-finder { grid-template-columns: minmax(0,1fr); }

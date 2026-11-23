@@ -14,9 +14,30 @@ try {
   $('#storage-status').textContent = 'Saved data could not be read. Existing data will not be overwritten. You can explore this session and export a backup, but changes will not persist.';
 }
 let devicePlaces = places;
+const visibleSavedRows = new Set();
+const savedPhotoObserver = new IntersectionObserver(entries => {
+  for(const entry of entries) {
+    if(entry.isIntersecting && entry.target.isConnected) visibleSavedRows.add(entry.target);
+    else visibleSavedRows.delete(entry.target);
+  }
+  checkVisibleSavedPhotos();
+});
+
+function checkVisibleSavedPhotos() {
+  if($('#places-view').hidden) return;
+  const visibleIds = new Set([...visibleSavedRows].map(row=>row.dataset.placeId));
+  googleReady.then(() => {
+    if($('#places-view').hidden) return;
+    google.ensureSavedPhotos(places.filter(place=>visibleIds.has(String(place.id))));
+  });
+}
+
 const google=GooglePlaces.createController({
   getPlaces:()=>[...places,...(friendGuide?.places || [])],
-  onUpdate:()=>{renderSaved();renderDiscover();},
+  onUpdate:()=>{
+    if(!$('#places-view').hidden) renderSaved();
+    if(!$('#discover-view').hidden) renderDiscover();
+  },
   onLink:(place,id)=>{const current=places.find(p=>p.id===place.id && p.url===place.url);if(current && current.googlePlaceId!==id){current.googlePlaceId=id;persist();}}
 });
 function element(tag, className = '', text = '') {
@@ -39,19 +60,26 @@ function samplePhotoCredit(photo) {
   return credit;
 }
 function addPlacePhoto(row, place, content) {
-  const sample = demoMode && place.photo;
-  const photo = sample ? 'artwork/' + sample.file : google.photo(place);
+  const sample = demoMode && row.classList.contains('card');
+  const photo = sample ? place.photo && 'artwork/' + place.photo.file : google.photo(place);
   function flagMissingPhoto() {
-    if(GooglePlaces.importedPlace(place) || row.classList.contains('card')) {
-      content.append(element('p','photo-credit',google.photoStatus(place)));
+    const status = element('p','photo-credit',sample ? 'Photo unavailable' : google.photoStatus(place));
+    if(!sample && google.photoState(place.id) === 'retryable') {
+      const retry = button('Retry photo', async () => {
+        retry.disabled = true;
+        try {await google.retryPhoto(place);}
+        finally {retry.disabled = false;}
+      }, 'text-button photo-retry');
+      status.append(' · ', retry);
     }
+    content.append(status);
   }
   if(!photo) {
     flagMissingPhoto();
     return;
   }
   const image = element('img','place-photo');
-  const credit = sample ? samplePhotoCredit(sample) : google.photoCredit(place);
+  const credit = sample ? samplePhotoCredit(place.photo) : google.photoCredit(place);
   image.src = photo;
   image.alt = place.name;
   image.loading = 'lazy';
@@ -60,7 +88,7 @@ function addPlacePhoto(row, place, content) {
     credit?.remove();
     row.classList.remove('has-photo');
     if(!sample) google.rejectPhoto(place,photo);
-    flagMissingPhoto();
+    if(row.isConnected) flagMissingPhoto();
   }, {once:true});
   row.prepend(image);
   if(credit) content.append(credit);
@@ -75,7 +103,13 @@ function persist() {
   catch {$('#storage-status').textContent = 'Browser storage is unavailable or full. Changes are kept for this session only. Export a backup to keep them.';}
 }
 function showView(view) {
+  if(view !== 'discover') dismissTour();
   $('#discover-view').hidden = view !== 'discover'; $('#places-view').hidden = view !== 'places'; $('#account-view').hidden = view !== 'account'; $('#friends-view').hidden = view !== 'friends';
+  if(view !== 'places') {
+    savedPhotoObserver.disconnect();
+    visibleSavedRows.clear();
+    google.ensureSavedPhotos([]);
+  }
   document.querySelectorAll('nav [data-view]').forEach(node => {node.classList.toggle('active',node.dataset.view === view); if(node.dataset.view === view) node.setAttribute('aria-current','page'); else node.removeAttribute('aria-current');});
   if (view === 'discover') renderDiscover(); else if(view === 'places') renderSaved();
   else if(view === 'friends') friends?.refresh();
@@ -93,9 +127,13 @@ function setDemoMode(enabled) {
 }
 $('#try-demo').addEventListener('click', () => {
   setDemoMode(true);
+  if(!tour.hidden) dismissTour();
   $('#shortlist-heading').focus();
 });
-$('#leave-demo').addEventListener('click', () => setDemoMode(false));
+$('#leave-demo').addEventListener('click', () => {
+  setDemoMode(false);
+  if(!tour.hidden) renderTour();
+});
 let planResults = null;
 const planChat = createPlanChat({
   getOwner: () => demoMode ? null : friends?.getOwner(),
@@ -124,19 +162,20 @@ function renderDiscover() {
   const expanded = new Set([...results.querySelectorAll('.place-more[open]')].map(detail=>detail.parentElement.dataset.placeId));
   results.replaceChildren();
   const hasReply = planResults !== null;
+  $('#occasion').placeholder = hasReply ? 'Anything else for this plan?' : 'Dinner with a friend, somewhere we can talk…';
   const showPlaces = hasReply || demoMode;
   $('#discover-view').dataset.hasResults = String(showPlaces);
   $('#shortlist-feedback').hidden = !hasReply;
   results.hidden = !showPlaces;
   $('#result-summary').closest('.list-heading').hidden = !showPlaces;
   $('#shortlist-heading').textContent = hasReply ? 'Your shortlist' : 'Sample places';
-  $('#plan-start').hidden = showPlaces;
+  $('#plan-start').hidden = showPlaces || tour.hidden || tourStep !== tourSteps.length - 1;
   $('#show-shortlist').hidden = !showPlaces;
   const data = discoverPlaces();
   $('#guide-empty').hidden = data.length > 0;
   $('#guide-empty-copy').textContent = friendGuide
     ? 'This friend has no visible places yet. Choose another guide to keep looking.'
-    : 'Add a place or import a Maps list to search your own guide.';
+    : 'Your guide is empty.';
   $('#guide-empty [data-view]').hidden = !!friendGuide;
   $('#discover-view .method').hidden = !hasReply;
   if(!showPlaces) {
@@ -169,8 +208,8 @@ function renderDiscover() {
     card.dataset.placeId = place.id;
     const body = element('div','card-body');
     const metadata = [place.typeLabel || I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price == null ? '' : `~$${place.price} per person`].filter(Boolean);
-    if(!demoMode)body.append(element('p','card-source',friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
     body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
+    if(!demoMode)body.append(element('p','card-source',friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
     if(demoMode) body.append(element('p','sample-description',place.description));
     if(place.note) body.append(element('blockquote','note',place.note));
 
@@ -265,10 +304,12 @@ function renderSaved() {
   $('#export-places').disabled = !places.length;
   $('#show-all-in-guide').disabled = readyCount === places.length;
   const list=$('#my-places');
+  savedPhotoObserver.disconnect();
+  visibleSavedRows.clear();
   const expanded = new Set([...list.querySelectorAll('.saved-place-actions[open]')].map(detail=>detail.parentElement.dataset.placeId));
   list.replaceChildren();
   updateSelection();
-  if(!places.length) {const empty=element('div','empty');empty.append(element('h3','','No saved places yet'),element('p','','Add one place or bring over a Google Maps list.'));list.append(empty);return;}
+  if(!places.length) {const empty=element('div','empty');empty.append(element('h3','','No saved places yet'),element('p','','Add one place or bring over a Google Maps list.'));list.append(empty);checkVisibleSavedPhotos();return;}
   places.forEach(place => {
     const row=element('article','saved-row'), content=element('div');
     row.dataset.placeId = place.id;
@@ -304,6 +345,7 @@ function renderSaved() {
     row.append(content,manage);
     addPlacePhoto(row,place,content);
     list.append(row);
+    if(!$('#places-view').hidden) savedPhotoObserver.observe(row);
   });
 }
 let sharedListRequest = null;
@@ -485,7 +527,6 @@ function applyImport(result, kind) {
   const status=$('#import-status');
   status.textContent=`${additions.length} ${additions.length===1?'place':'places'} ${kind==='backup'?'restored':'added to your guide'}. ${importCounts({...result,duplicates:result.duplicates+result.places.length-additions.length})}`;
   status.focus();
-  if(additions.length) googleReady.then(()=>google.enrichImported(additions));
 }
 $('#confirm-import').addEventListener('click',()=>{
   if(!pending || places!==pending.guide) return;
@@ -519,12 +560,6 @@ $('#restore-file').addEventListener('change',async event=>{
     $('#import-status').textContent='Could not restore this backup. Use an Inner Table. JSON backup under 20 MB. No saved places were changed.';
   }
 });
-renderSaved();renderDiscover();
-const googleReady = google.start();
-function checkImportedGuide() {
-  return google.enrichImported(places,'inner-table-photo-scan-v1:' + guideMode);
-}
-
 friends = createFriends({
   onFollowing: people => {
     const list = $('#guide-friends');
@@ -570,6 +605,7 @@ const tourSeen = new Set();
 
 function renderTour() {
   const [selector, heading, copy] = tourSteps[tourStep];
+  $('#plan-start').hidden = tourStep !== tourSteps.length - 1 || planResults !== null || demoMode;
   tourTarget?.classList.remove('tour-target');
   tourTarget = $(selector);
   tourTarget.classList.add('tour-target');
@@ -595,12 +631,11 @@ function dismissTour() {
   tour.hidden = true;
   tourTarget?.classList.remove('tour-target');
   tourTarget = null;
+  $('#plan-start').hidden = true;
 }
 
 function finishTour() {
-  if(!tourAccount || tour.hidden) return;
-  tourSeen.add(tourAccount);
-  try {localStorage.setItem('inner-table-tour-v1:' + tourAccount, 'seen');} catch {}
+  if(tour.hidden) return;
   dismissTour();
   $('#occasion').focus();
 }
@@ -623,7 +658,6 @@ tourSample.addEventListener('click', () => {
   setDemoMode(true);
   renderTour();
 });
-$('#tour-replay').addEventListener('click', startTour);
 document.addEventListener('keydown', event => {
   if(event.key === 'Escape' && !tour.hidden && !$('#discover-view').hidden) {
     event.preventDefault();
@@ -644,7 +678,10 @@ account = createAccounts({
     tourAccount = id;
     let seen = tourSeen.has(id);
     try {seen ||= localStorage.getItem('inner-table-tour-v1:' + id) === 'seen';} catch {}
-    if(!seen) startTour();
+    if(seen) return;
+    tourSeen.add(id);
+    try {localStorage.setItem('inner-table-tour-v1:' + id, 'seen');} catch {}
+    startTour();
   },
   getDevicePlaces: () => devicePlaces,
   onMode: mode => {guideMode = mode;},
@@ -656,7 +693,9 @@ account = createAccounts({
     guideMode = mode;
     friends.leave();
     closeEditor();planChat.reset();renderSaved();renderDiscover();
-    googleReady.then(()=>{if(places===records)checkImportedGuide();});
   }
 });
-Promise.all([account.start(),googleReady]).then(checkImportedGuide);
+renderSaved();
+renderDiscover();
+const googleReady = google.start();
+account.start();
