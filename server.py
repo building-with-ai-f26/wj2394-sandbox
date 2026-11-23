@@ -84,10 +84,13 @@ class PlacesError(Exception):
         self.status = status
 
 
+PLACE_PHOTO_FIELDS = "id,photos"
+
+
 class GooglePlaces:
     def __init__(self, key="", limit=40, reviews=False, usage=None):
         self.key = key
-        self.limit = max(1, min(int(limit), 1000))
+        self.limit = None if limit is None else max(1, min(int(limit), 1000))
         self.reviews = reviews
         self.used = 0
         self.lock = threading.Lock()
@@ -101,7 +104,7 @@ class GooglePlaces:
         if not self.key:
             raise PlacesError("Add GOOGLE_MAPS_API_KEY to your local .env and restart the server.", 503)
         with self.lock:
-            if self.used >= self.limit:
+            if self.limit is not None and self.used >= self.limit:
                 raise PlacesError("Local session request limit reached. Review Google Cloud usage before restarting.", 429)
             self.used += 1
         headers = {"X-Goog-Api-Key": self.key, "Content-Type": "application/json"}
@@ -132,35 +135,56 @@ class GooglePlaces:
         finally:
             if self.usage:
                 operation = "search" if resource == "places:searchText" else "photo" if resource.endswith("/media") else "details"
-                sku = "Text Search Pro" if operation == "search" else "Place Photos" if operation == "photo" else "Place Details Enterprise + Atmosphere" if fields and "reviews" in fields else "Place Details Enterprise"
+                if operation == "search":
+                    sku = "Text Search Pro"
+                elif operation == "photo":
+                    sku = "Place Photos"
+                elif fields == PLACE_PHOTO_FIELDS:
+                    sku = "Place Details Essentials IDs Only"
+                else:
+                    sku = "Place Details Enterprise + Atmosphere" if fields and "reviews" in fields else "Place Details Enterprise"
                 self.usage.record(operation, http_status, round((time.monotonic() - started) * 1000), sku)
 
-    def search(self, name, neighborhood=""):
+    def search(self, name, neighborhood="", include_photos=False):
         if not isinstance(name, str) or not name.strip() or len(name) > 200:
             raise PlacesError("Provide a place name up to 200 characters.")
         if not isinstance(neighborhood, str) or len(neighborhood) > 100:
             raise PlacesError("Invalid neighborhood.")
+        if not isinstance(include_photos, bool):
+            raise PlacesError("Invalid photo option.")
+        fields = "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.attributions"
+        if include_photos:
+            fields += ",places.photos"
         data = self.request("places:searchText", {
             "textQuery": " ".join(part for part in [name.strip(), neighborhood.strip()] if part),
             "pageSize": 3, "languageCode": "en", "regionCode": "US",
             "locationBias": {"circle": {"center": {"latitude": 40.7306, "longitude": -73.9866}, "radius": 30000}}
-        }, "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.attributions")
-        return {"places": data.get("places", [])[:3]}
+        }, fields)
+        places = data.get("places", [])[:3]
+        if include_photos:
+            for place in places:
+                place["photos"] = (place.get("photos") or [])[:1]
+        return {"places": places}
 
-    def details(self, place_id, include_reviews=False):
+    def details(self, place_id, include_reviews=False, photos_only=False):
         if not isinstance(place_id, str) or not PLACE_ID.fullmatch(place_id):
             raise PlacesError("Invalid Google place ID.")
         if not isinstance(include_reviews, bool):
             raise PlacesError("Invalid review option.")
+        if not isinstance(photos_only, bool) or (photos_only and include_reviews):
+            raise PlacesError("Invalid photo option.")
         if include_reviews and not self.reviews:
             raise PlacesError("Reviews are disabled locally. Set GOOGLE_PLACES_REVIEWS_ENABLED=true to enable the higher-priced review tier.")
         fields = "id,displayName,formattedAddress,primaryType,primaryTypeDisplayName,types,photos,googleMapsUri,attributions,priceRange"
-        if include_reviews:
+        if photos_only:
+            fields = PLACE_PHOTO_FIELDS
+        elif include_reviews:
             fields += ",reviews,editorialSummary"
         data = self.request("places/" + quote(place_id, safe=""), fields=fields)
         # Only one photo is needed per card. Review order remains Google's relevance order.
         data["photos"] = data.get("photos", [])[:1]
-        data["reviews"] = data.get("reviews", [])[:5] if include_reviews else []
+        if not photos_only:
+            data["reviews"] = data.get("reviews", [])[:5] if include_reviews else []
         return data
 
     def photo(self, name):
@@ -339,9 +363,11 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response(self.server.planner.recommend(data, shortlist=self.path.endswith("/shortlist")))
                 return
             elif self.path == "/api/places/search":
-                result = self.server.places.search(data.get("name"), data.get("neighborhood", ""))
+                result = self.server.places.search(data.get("name"), data.get("neighborhood", ""),
+                                                   include_photos=data.get("includePhotos", False))
             elif self.path == "/api/places/details":
-                result = self.server.places.details(data.get("placeId"), data.get("includeReviews", False))
+                result = self.server.places.details(data.get("placeId"), data.get("includeReviews", False),
+                                                    photos_only=data.get("photosOnly", False))
             else:
                 raise PlacesError("Not found.", 404)
             self.json_response({"result": result, "usage": self.server.places.status()})
@@ -355,18 +381,23 @@ def main():
     load_env()
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=int(os.getenv('PORT', '8001')))
+    parser.add_argument("--no-places-limit", action="store_true",
+                        help="Remove the app's Google Places request cap in loopback mode.")
     args = parser.parse_args()
     try:
         origin = public_app_origin()
     except ValueError as error:
         parser.error(str(error))
+    if origin and args.no_places_limit:
+        parser.error("--no-places-limit is available only in the local preview.")
+    places_limit = None if args.no_places_limit else os.getenv("GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION", "40")
     server = ThreadingHTTPServer(('0.0.0.0' if origin else '127.0.0.1', args.port), Handler)
     server.public_origin = origin
     server.api_limiter = RequestLimiter()
     server.accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''), origin)
     server.planner = Planner(os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"), UsageLog(ROOT / ".local" / "usage.jsonl"))
     server.places = GooglePlaces(os.getenv("GOOGLE_MAPS_API_KEY", ""),
-                                 os.getenv("GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION", "40"),
+                                 places_limit,
                                  os.getenv("GOOGLE_PLACES_REVIEWS_ENABLED", "false").lower() == "true",
                                  UsageLog(ROOT / ".local" / "usage.jsonl"))
     print('Inner Table. app: ' + (origin or f'http://127.0.0.1:{args.port}') + '/prototype/', flush=True)

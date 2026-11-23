@@ -1,4 +1,5 @@
 import io
+from contextlib import redirect_stderr
 import json
 import threading
 import unittest
@@ -6,7 +7,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from server import GooglePlaces, Handler, PlacesError, ThreadingHTTPServer
+from server import GooglePlaces, Handler, PlacesError, ThreadingHTTPServer, main
 from accounts import Accounts
 
 
@@ -35,6 +36,25 @@ class GoogleClientTests(unittest.TestCase):
                 client.search('Again')
             self.assertEqual(upstream.call_count, 1)
 
+    def test_uncapped_local_client_keeps_usage_count(self):
+        client = GooglePlaces('fixture-not-a-real-key', limit=None)
+        client.used = 20
+        with patch('server.urlopen', return_value=Response({'places': []})) as upstream:
+            client.search('Mercado Little Spain')
+            upstream.assert_called_once()
+        self.assertIsNone(client.status()['requestLimit'])
+        self.assertEqual(client.status()['requestsUsed'], 21)
+
+    def test_uncapped_flag_is_refused_in_hosted_mode(self):
+        with patch('sys.argv', ['server.py', '--no-places-limit']), \
+             patch('server.public_app_origin', return_value='https://example.com'), \
+             patch('server.ThreadingHTTPServer') as listener, redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(SystemExit) as aborted:
+                main()
+        self.assertEqual(aborted.exception.code, 2)
+        self.assertIn('only in the local preview', errors.getvalue())
+        listener.assert_not_called()
+
     def test_search_uses_narrow_fields_and_never_sends_personal_notes(self):
         with patch('server.urlopen', return_value=Response({'places': []})) as upstream:
             GooglePlaces('fixture-not-a-real-key').search('Test', 'Chelsea')
@@ -42,6 +62,27 @@ class GoogleClientTests(unittest.TestCase):
             self.assertEqual(json.loads(request.data)['textQuery'], 'Test Chelsea')
             self.assertNotIn('reviews', request.get_header('X-goog-fieldmask'))
             self.assertNotIn('key=', request.full_url)
+
+    def test_photo_search_returns_one_reference_per_candidate_without_review_fields(self):
+        candidate = {'id': 'ChIJMercado', 'photos': [{'name': 'ref-one'}, {'name': 'ref-two'}]}
+        with patch('server.urlopen', return_value=Response({'places': [candidate]})) as upstream:
+            data = GooglePlaces('fixture-not-a-real-key').search('Mercado Little Spain', include_photos=True)
+            fields = upstream.call_args.args[0].get_header('X-goog-fieldmask').split(',')
+        self.assertIn('places.photos', fields)
+        self.assertNotIn('places.reviews', fields)
+        self.assertEqual(data['places'][0]['photos'], [{'name': 'ref-one'}])
+
+    def test_known_id_photo_details_request_only_id_and_photos(self):
+        client = GooglePlaces('fixture-not-a-real-key', reviews=True)
+        with patch('server.urlopen', return_value=Response({'id': 'ChIJTomino', 'photos': []})) as upstream:
+            data = client.details('ChIJTomino', photos_only=True)
+            request = upstream.call_args.args[0]
+        self.assertEqual(request.get_header('X-goog-fieldmask'), 'id,photos')
+        self.assertEqual(data, {'id': 'ChIJTomino', 'photos': []})
+        with self.assertRaises(PlacesError):
+            client.details('ChIJTomino', True, photos_only=True)
+        with self.assertRaises(PlacesError):
+            client.search('Tomiño Taberna Gallega', include_photos='yes')
 
     def test_review_opt_in_changes_fields_and_limits_samples(self):
         client = GooglePlaces('fixture-not-a-real-key')

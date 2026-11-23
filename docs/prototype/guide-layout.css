@@ -104,11 +104,21 @@ main .text-button { min-height: 44px; overflow-wrap: anywhere; }
 }
 .photo-credit a { color: inherit; font-size: inherit; }
 .photo-credit .photo-retry { font-size: inherit; }
+.place-photo.place-photo-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  background: #eeeee7;
+  color: var(--muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+  font: 600 12px/1.25 system-ui, sans-serif;
+}
 #discover-view .card .sample-description { font-size: 14px; margin: 6px 0 0; }
 #discover-view .place-links { display: flex; flex-wrap: wrap; gap: 0 16px; }
 #discover-view .plan-options { margin-top: 4px; }
 #discover-view #try-demo { text-decoration: underline; text-underline-offset: 3px; }
-#shortlist-heading, .plan-start h2 { font: 400 29px/1.16 Georgia, serif; }
+#shortlist-heading, .plan-start h2 { font: 400 29px/1.16 Georgia, serif; overflow-wrap: anywhere; }
 #discover-view .card.has-photo { grid-template-columns: 72px minmax(0, 1fr); column-gap: 14px; }
 #discover-view .card .place-photo { grid-column: 1; grid-row: 1; width: 72px; height: 76px; border-radius: 5px; }
 #discover-view .card.has-photo .card-body, #discover-view .card.has-photo .place-more { grid-column: 2; }

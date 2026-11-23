@@ -77,3 +77,12 @@ My places queues visible saved spots, including manually added ones. Shortlist r
 Chrome verified a reload partway through the tour, leaving Discover, a different account, and previously seen flags. The saved-place and approved-friend checks used public venue names with mocked Google and account responses. The 60 JavaScript and 40 Python checks passed. Chrome confirmed the layout at 320, 390 and 1100 pixels. Live photo coverage remains open. [Desktop Discover](../docs/assets/build-4-discover.png) · [Phone shortlist](../docs/assets/build-4-shortlist.png)
 
 Observed checkpoints cover approximately 1:52–1:59 p.m. America/New_York, including tool waits. This is an elapsed work-window estimate. The fixture checks spent $0 in runtime provider charges. Builder hours await reconciliation.
+
+
+### Thumbnail coverage in My places and approved guides, November 23
+
+Every displayed place has a thumbnail slot. Approved readers can browse the friend’s shared places and return to a shortlist. Exact verified venue matches can use credited local photos for Mercado Little Spain, Via Carota, Caffè Dante on MacDougal Street and Brooklyn Bridge Park Pier 1. Displayed venues without a confirmed photo have a labeled tile. Google Text Search can return a photo reference alongside a confirmed venue match, saving a separate details request. A known venue ID gets a photo-only lookup.
+
+Fixtures checked four owner rows and three approved friend rows, including hidden-place exclusion and revocation. Chrome checked 320, 390 and 1100 pixel layouts. [390-pixel preview with Google checks paused](../docs/assets/build-4-thumbnail-coverage.png)
+
+The local preview is running with its app-level Google cap disabled, as requested. Hosted mode requires its existing cap. Six live Google calls across two checks verified a two-request photo for each of Mercado Little Spain, Tomiño Taberna Gallega and Sake Bar Decibel. Private-guide photo coverage and Google charges have yet to be reconciled. Checkpoints cover approximately 2:17–2:25 p.m. New York time, including tool waits.

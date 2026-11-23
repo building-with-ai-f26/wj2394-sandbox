@@ -5,6 +5,28 @@ const vm=require('node:vm');
 const {categoryFromGoogle,mergePlace,reviewTags,placeIdFromURL,safeURL,automaticMatch}=require('../docs/prototype/google.js');
 const {validateBackup}=require('../docs/prototype/imports.js');
 const {matchPlaces}=require('../docs/prototype/matcher.js');
+
+test('licensed photos attach to verified Maps identities and reject conflicting branches',()=>{
+  const context = vm.createContext({
+    URL,
+    GooglePlaces: require('../docs/prototype/google.js'),
+    InnerTableImport: require('../docs/prototype/imports.js')
+  });
+  for(const script of ['demo.js','venue-photos.js']) {
+    vm.runInContext(fs.readFileSync('docs/prototype/'+script,'utf8'),context);
+  }
+
+  const find = context.InnerTableVenuePhotos.find;
+  const mercado = {name:'Mercado Little Spain',url:'https://maps.google.com/?cid=5140990968716504887'};
+  const credited = find(mercado);
+  assert.equal(credited.author,'Kidfly182');
+  assert.equal(credited.license,'CC BY 4.0');
+  assert.ok(fs.existsSync('docs/prototype/artwork/'+credited.file));
+  assert.equal(find({...mercado,url:'https://maps.app.goo.gl/fixture',googlePlaceId:'ChIJgx-LUDlZwokRN6_WQwx4WEc'}),credited);
+  assert.equal(find({...mercado,url:'https://maps.google.com/?cid=999',neighborhood:'Hudson Yards'}),null);
+  assert.equal(find({...mercado,url:'https://www.google.com/maps/place/Mercado+Little+Spain'}),null);
+});
+
 const personal={id:'test',name:'My saved place',url:'https://www.google.com/maps/place/Test',category:'unknown',status:'not specified',note:'My own note',neighborhood:'',price:null,tags:[],inferredTags:[],inGuide:true,recommended:false};
 const google={id:'ChIJtest123',primaryType:'coffee_shop',primaryTypeDisplayName:{text:'Coffee shop'},types:['coffee_shop','food'],photos:[{name:'places/ChIJtest123/photos/test'}],reviews:[{text:{text:'A quiet spot for a catch-up with friends.'}}]};
 test('Google type mapping uses specific primary types and leaves unsupported places unknown',()=>{
@@ -72,7 +94,7 @@ const publicVenues = [
 
 function controllerFixture(places, {
   limit=40, photoStatus=200, detailsStatus=200, photoStatuses=[], usageAfterRetry=0,
-  reviewsEnabled=false, deferredDetails=null
+  reviewsEnabled=false, deferredDetails=null, searchCandidates=[]
 }={}) {
   const nodes=new Map(), calls=[], linked=[];
   const domNode=tag=>({
@@ -94,17 +116,22 @@ function controllerFixture(places, {
       if(status==='timeout') throw new DOMException('Timed out', 'TimeoutError');
       return {ok:status===200,status,headers:new Headers({'Content-Type':'image/jpeg'}),blob:async()=>new Blob(['photo'],{type:'image/jpeg'})};
     }
-    const {placeId:id,includeReviews}=JSON.parse(options.body);
+    if(route==='/api/places/search') {
+      const body=JSON.parse(options.body);
+      calls.push({route:'search',...body});
+      return {ok:true,json:async()=>({result:{places:searchCandidates}})};
+    }
+    const {placeId:id,includeReviews,photosOnly}=JSON.parse(options.body);
     const place=places.find(item=>item.googlePlaceId===id);
     assert.ok(place, 'lookup should use a confirmed public venue identity');
-    calls.push({route:'details',id,includeReviews});
+    calls.push({route:'details',id,includeReviews,photosOnly});
     const version=callsFor('details').filter(call=>call.id===id).length;
     if(deferredDetails && version===1) await deferredDetails(id);
     if(detailsStatus!==200) return {ok:false,status:detailsStatus};
     const author={displayName:'Fixture contributor',uri:'https://www.google.com/maps/contrib/123'};
     return {ok:true,json:async()=>({
       usage:{requestLimit:limit,requestsUsed:calls.length},
-      result:{id,googleMapsUri:place.url,photos:[{name:`places/${id}/photos/ref-${version}`,authorAttributions:[author]}]}
+      result:{id,...(photosOnly ? {} : {googleMapsUri:place.url}),photos:[{name:`places/${id}/photos/ref-${version}`,authorAttributions:[author]}]}
     })};
   };
   const context=vm.createContext({URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch,
@@ -273,6 +300,55 @@ test('a manual photo retry rechecks temporary and exhausted allowances',async()=
   }
 });
 
+
+
+test('an exact photo search supplies the venue image without redundant details',async()=>{
+  const [fixture]=publicVenues.slice(-2);
+  const place={...fixture,googlePlaceId:undefined};
+  const candidate={id:fixture.googlePlaceId,displayName:{text:place.name},
+    formattedAddress:'New York, NY',googleMapsUri:place.url,
+    photos:[{name:`places/${fixture.googlePlaceId}/photos/search-ref`,
+      authorAttributions:[{displayName:'Fixture contributor',uri:'https://www.google.com/maps/contrib/123'}]}]};
+  const {controller,callsFor}=controllerFixture([place],{limit:4,searchCandidates:[candidate]});
+  await controller.start();
+  await controller.ensureSavedPhotos([place]);
+  assert.equal(controller.photoState(place.id),'ready');
+  assert.equal(callsFor('search')[0].includePhotos,true);
+  assert.equal(callsFor('details').length,0);
+  assert.equal(callsFor('photo').length,1);
+  assert.equal(controller.placeURL(place),candidate.googleMapsUri);
+  const creditLinks=controller.photoCredit(place).children.filter(node=>node.tag==='a');
+  assert.deepEqual(creditLinks.map(link=>link.href),[place.url,'https://www.google.com/maps/contrib/123']);
+});
+
+test('photo search neither loads an ambiguous branch nor saves its place ID',async()=>{
+  const original=publicVenues.at(-1), place={...original,googlePlaceId:undefined};
+  const candidate={id:original.googlePlaceId,displayName:{text:place.name},
+    formattedAddress:'New York, NY',photos:[{name:`places/${original.googlePlaceId}/photos/search-ref`}]};
+  const {controller,callsFor,linked}=controllerFixture([place],{
+    searchCandidates:[candidate,{...candidate,id:'ChIJOtherTomino',formattedAddress:'Queens, NY'}]
+  });
+  await controller.start();
+  await controller.ensureSavedPhotos([place]);
+  assert.equal(controller.photoState(place.id),'unavailable');
+  assert.equal(callsFor('photo').length,0);
+  assert.equal(callsFor('details').length,0);
+  assert.equal(linked.length,0);
+});
+
+test('disabled reviews still allow complete planner lookup after photos-only details',async()=>{
+  const tomino=publicVenues.at(-1);
+  const {controller,callsFor}=controllerFixture([tomino]);
+  await controller.start();
+  await controller.ensureSavedPhotos([tomino]);
+  assert.equal(controller.placeURL(tomino).includes('query_place_id='+tomino.googlePlaceId),true);
+  assert.equal(controller.extras(tomino),null);
+  assert.equal((await controller.prepareForPlan([tomino.id])).checked,1);
+  assert.deepEqual(callsFor('details').map(call=>Boolean(call.photosOnly)),[true,false]);
+  assert.equal(controller.placeURL(tomino),tomino.url);
+  assert.ok(controller.extras(tomino));
+});
+
 test('saved photo details do not request reviews and the planner can still retrieve them',async()=>{
   const tomino=publicVenues.at(-1);
   const {controller,callsFor}=controllerFixture([tomino],{reviewsEnabled:true});
@@ -280,7 +356,7 @@ test('saved photo details do not request reviews and the planner can still retri
   await controller.ensureSavedPhotos([tomino]);
   await controller.prepareForPlan([tomino.id]);
   await controller.ensureSavedPhotos([tomino]);
-  assert.deepEqual(callsFor('details').map(call=>call.includeReviews),[false,true]);
+  assert.deepEqual(callsFor('details').map(call=>Boolean(call.includeReviews)),[false,true]);
   assert.equal(callsFor('photo').length,1);
 });
 

@@ -126,11 +126,14 @@
       if(entry.photoSource && Date.now() - entry.fetchedAt >= 60_000) entry.photoSource=undefined;
       return entry.photoSource!==undefined;
     }
-    async function findDetails(place,{interactive=false,rematch=false,confirmedId,background=false,reviews=false}={}) {
+    async function findDetails(place,{interactive=false,rematch=false,confirmedId,background=false,reviews=false,photo=false}={}) {
       if(!active(place)) return null;
       let id=confirmedId || (!rematch && knownId(place));
+      let photoMatch;
       if(!id) {
-        const result=await request('search',{name:place.name,neighborhood:place.neighborhood},background);
+        const search={name:place.name,neighborhood:place.neighborhood};
+        if(photo) search.includePhotos=true;
+        const result=await request('search',search,background);
         if(!active(place)) return null;
         const candidates=result.places || [];
         const exact=automaticMatch(place.name,candidates,place.url);
@@ -139,26 +142,26 @@
           return null;
         }
         id=exact.id;
+        if(photo) photoMatch=exact;
       }
-      const includeReviews=wantsReviews({reviews});
-      const {photos: photoSources,...details}=await request('details',{placeId:id,includeReviews},background);
+      const includeReviews=!photo && wantsReviews({reviews});
+      const fields=photo ? {placeId:id,photosOnly:true} : {placeId:id,includeReviews};
+      const {photos:photoSources,...found}=photoMatch || await request('details',fields,background);
       if(!active(place)) return null;
       const previous=data.get(place.id);
-      const samePlace=previous?.details.id===details.id;
+      const samePlace=previous?.details.id===found.id;
       if(!samePlace) clearPhoto(place.id);
-      if(samePlace && previous.reviewed && !includeReviews) {
-        details.reviews=previous.details.reviews;
-        details.editorialSummary=previous.details.editorialSummary;
-      }
+      const details=photo && samePlace ? {...previous.details,...found} : found;
       const photoSource=photoSources?.[0]?.name ? photoSources[0] : null;
-      const entry={details,photoSource,fetchedAt:Date.now(),reviewed:includeReviews || (samePlace && previous.reviewed)};
+      const entry={details,photoSource,fetchedAt:Date.now(),full:!photo || (samePlace && previous.full),
+        reviewed:includeReviews || (photo && samePlace && previous.reviewed)};
       data.set(place.id,entry);
       onLink(place,id);
       return entry;
     }
     function getDetails(place,options={}) {
       const force=options.force || options.interactive;
-      const covers=entry=>entry && (!wantsReviews(options) || entry.reviewed) && (!options.photo || freshSource(entry));
+      const covers=entry=>options.photo ? freshSource(entry) : entry?.full && (!wantsReviews(options) || entry.reviewed);
       const running=detailsInFlight.get(place.id);
       if(running) return running.then(entry=>entry && (force || !covers(entry)) ? getDetails(place,options) : entry);
       const cached=data.get(place.id);
@@ -230,7 +233,7 @@
     function photoCost(place) {
       if(photos.has(place.id)) return 0;
       const entry=data.get(place.id);
-      return freshSource(entry) ? Number(Boolean(entry.photoSource)) : detailsCost(place)+1;
+      return freshSource(entry) ? Number(Boolean(entry.photoSource)) : 2;
     }
     function nextPhoto() {
       for(const queue of photoQueues) {
@@ -334,7 +337,7 @@
         for(const place of targets) {
           if(!active(place)) break;
           const entry=data.get(place.id);
-          const needsDetails=!entry || (wantsReviews({reviews:true}) && !entry.reviewed);
+          const needsDetails=!entry?.full || (wantsReviews({reviews:true}) && !entry.reviewed);
           if(needsDetails && !detailsInFlight.has(place.id) && remaining<detailsCost(place)+reserve) {
             error='Google Maps requests are limited. Some places could not be checked.';
             continue;
@@ -378,7 +381,9 @@
       return credits;
     }
     function extras(place) {
-      const details=data.get(place.id)?.details;if(!details)return null;
+      const entry=data.get(place.id);
+      if(!entry?.full) return null;
+      const details=entry.details;
       const section=node('section','google-details');
       const brand=node('p','google-brand','Google Maps');brand.setAttribute('translate','no');
       brand.append(document.createTextNode(' · '),mapsLink(place));
@@ -408,7 +413,7 @@
     function action(place) {
       if(!configured)return document.createDocumentFragment();
       const busy=detailsInFlight.has(place.id) || checkingId===place.id;
-      const item=node('button','secondary',busy?'Finding details…':data.has(place.id)?'Refresh details':'Find details');item.type='button';item.disabled=busy;item.onclick=()=>refreshPlace(place);return item;
+      const item=node('button','secondary',busy?'Finding details…':data.get(place.id)?.full?'Refresh details':'Find details');item.type='button';item.disabled=busy;item.onclick=()=>refreshPlace(place);return item;
     }
     function refreshAllowance() {
       if(!statusRequest) {
@@ -437,7 +442,10 @@
     }
     return {
       start,action,extras,photoCredit,placeURL,prepareForPlan,ensureSavedPhotos,checkShortlistPhotos,
-      merge:place=>mergePlace(place,data.get(place.id)?.details),
+      merge:place=>{
+        const entry=data.get(place.id);
+        return entry?.full ? mergePlace(place,entry.details) : place;
+      },
       photo:place=>photos.get(place.id)?.url,
       photoState,photoStatus,retryPhoto,
       rejectPhoto:(place,url)=>{
