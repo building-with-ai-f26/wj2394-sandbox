@@ -66,3 +66,23 @@ Friends now previews an exact username before sending an ID-bound request. Guide
 Chrome used two fictional accounts to save a photo and bio, confirm lookup was read-only, send and approve a request, open the guide, and remove access. The page fit at 320, 390 and 1100 pixels. An isolated PostgreSQL run passed all three SQL suites, including unauthorized reads, one-way approval and revocation. The connected Supabase project was outside the test. [Friends phone screenshot](../docs/assets/build-4-friends.png)
 
 Retained timestamps for this work cover approximately 1:23–1:31 a.m. New York time on November 22, or eight minutes of elapsed time including tool waits.
+
+
+### Discover and shortlist design review, November 23
+
+Inner Table should feel like a neighborhood guide kept by friends. Discover keeps the personal opening question in the wordmark’s serif style. The guide picker sits above the composer with a visible Find places action. Real, credited venue thumbnails make the occasion examples a short list. Pi informed the opening, Thumbtack the primary action, Beli the compact place rows, and Corner the real photos. Shortlist rows use thin dividers and put the place name, saver and note ahead of the expanded explanation.
+
+My places queues visible saved spots, including manually added ones. Shortlist results have priority over routine scans. Expired photo references and temporary transport failures get a single retry with fresh place details when the allowance permits. Recoverable failures offer Retry photo. The tour records its first display per account in browser storage, honors earlier completion records and has no Profile replay.
+
+Chrome verified a reload partway through the tour, leaving Discover, a different account, and previously seen flags. The saved-place and approved-friend checks used public venue names with mocked Google and account responses. The 60 JavaScript and 40 Python checks passed. Chrome confirmed the layout at 320, 390 and 1100 pixels. Live photo coverage remains open. [Desktop Discover](../docs/assets/build-4-discover.png) · [Phone shortlist](../docs/assets/build-4-shortlist.png)
+
+Observed checkpoints cover approximately 1:52–1:59 p.m. America/New_York, including tool waits. This is an elapsed work-window estimate. The fixture checks spent $0 in runtime provider charges. Builder hours await reconciliation.
+
+
+### Thumbnail coverage in My places and approved guides, November 23
+
+Every displayed place has a thumbnail slot. Approved readers can browse the friend’s shared places and return to a shortlist. Exact verified venue matches can use credited local photos for Mercado Little Spain, Via Carota, Caffè Dante on MacDougal Street and Brooklyn Bridge Park Pier 1. Displayed venues without a confirmed photo have a labeled tile. Google Text Search can return a photo reference alongside a confirmed venue match, saving a separate details request. A known venue ID gets a photo-only lookup.
+
+Fixtures checked four owner rows and three approved friend rows, including hidden-place exclusion and revocation. Chrome checked 320, 390 and 1100 pixel layouts. [390-pixel preview with Google checks paused](../docs/assets/build-4-thumbnail-coverage.png)
+
+The local preview is running with its app-level Google cap disabled, as requested. Hosted mode requires its existing cap. Six live Google calls across two checks verified a two-request photo for each of Mercado Little Spain, Tomiño Taberna Gallega and Sake Bar Decibel. Private-guide photo coverage and Google charges have yet to be reconciled. Checkpoints cover approximately 2:17–2:25 p.m. New York time, including tool waits.

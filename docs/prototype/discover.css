@@ -86,22 +86,19 @@ main:has(#discover-view:not([hidden])) {
 #discover-view #plan-send {
   grid-column: 2;
   grid-row: 1;
-  display: grid;
-  justify-items: center;
-  align-items: center;
   min-height: 44px;
-  width: 44px;
-  padding: 0;
-  border-radius: 50%;
+  padding: 0 13px;
+  font-weight: 650;
+  white-space: nowrap;
 }
-#plan-send svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .plan-options { display: flex; flex-wrap: wrap; gap: 0 16px; align-items: start; }
 #discover-view .plan-disclosure { margin: 0 auto 0 0; font-size: 13px; min-width: 0; }
 #discover-view .plan-disclosure summary { min-height: 44px; align-content: center; }
 #discover-view #plan-status { font-size: 13px; margin: 8px 0 0; }
 #discover-view #plan-status:empty { margin: 0; }
-#discover-view #show-shortlist { font-weight: 700; }
+#discover-view #show-shortlist { font-weight: 650; }
+#discover-view:has(#plan-messages[hidden]) #reset { display: none; }
 #discover-view .plan-messages { max-height: min(310px, 37vh); margin: 10px 0 16px; }
 #discover-view .plan-message { font-size: 15px; max-width: 94%; overflow-wrap: anywhere; }
 #discover-view .plan-message.assistant { background: var(--card); padding-inline: 14px; }
@@ -182,7 +179,6 @@ main:has(#discover-view:not([hidden])) {
 @media (max-width: 760px) {
   main:has(#discover-view:not([hidden])) { padding: 27px 20px 38px; }
   .discover-heading { margin-bottom: 14px; }
-  .discover-heading h1 { font-size: clamp(38px, 9.8vw, 57px); }
   #discover-view #occasion { resize: none; }
   .recommendations-pane { margin-top: 27px; }
 }

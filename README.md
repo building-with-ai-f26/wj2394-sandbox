@@ -52,6 +52,8 @@ python server.py --port 8001
 
 Open `http://127.0.0.1:8001/prototype/` for the app, or `http://127.0.0.1:8001/` for the class product page. Stop the server with Ctrl+C. Local mode binds to loopback. Use the explicit hosted mode below behind Render HTTPS for a public demo.
 
+For a local photo coverage session, run `python server.py --port 8001 --no-places-limit`. This turns off the app's Google Places request cap in loopback mode. Google Cloud quota and billing still apply. Hosted mode requires a request cap.
+
 GitHub Pages publishes `main:/docs`, so the prototype source lives in `docs/prototype/`. Use the Pages URLs above to run the public pages; GitHub's repository file viewer displays source. The local server serves `docs/` at its root, so the app path is `/prototype/`. Browser-stored places remain on their original origin: imports made at localhost are not transferred to GitHub Pages; use backup export/restore to move them.
 
 Before noon each Monday (America/New_York), update the class page's **Unit Economics & Analytics Snapshot** and the active weekly build's **Cost & time this week**. Confirm real costs and hours with the builder, date the review, and mark missing values pending. This requirement is recorded in AGENTS.md; it is not an automated schedule.

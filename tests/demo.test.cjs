@@ -11,7 +11,7 @@ function demoFixture() {
   let resets = 0, merges = 0, focused = null;
   const context = vm.createContext({
     URL,
-    demoMode:false, places:personal, friendGuide:friend,
+    demoMode:false, places:personal, friendGuide:friend, tour:{hidden:true},
     I:{ready:place => place.inGuide},
     google:{merge:place => {merges++;return place;}},
     planChat:{reset:() => {resets++;}}, renderDiscover() {},

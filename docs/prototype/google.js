@@ -38,7 +38,9 @@
     const url=new URL(value);
     const cid=url.searchParams.get('cid');
     if(cid && /^\d+$/.test(cid))return BigInt(cid).toString();
-    const feature=decodeURIComponent(url.pathname).match(/!1s0x[0-9a-f]+:(0x[0-9a-f]+)/i);
+    let path=url.pathname;
+    try {path=decodeURIComponent(path);} catch {/* Lenient URLs can contain stray percent signs. */}
+    const feature=path.match(/!1s0x[0-9a-f]+:(0x[0-9a-f]+)/i);
     return feature?BigInt(feature[1]).toString():null;
   }
   function automaticMatch(name,candidates,savedURL='') {
@@ -47,18 +49,16 @@
       const linked=candidates.filter(candidate=>mapsFeatureId(candidate.googleMapsUri || '')===feature);
       return linked.length===1 ? linked[0] : null;
     }
-    const normalize=value=>value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+    const normalize=value=>value.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
     const exact=candidates.filter(candidate=>normalize(candidate.displayName?.text || '')===normalize(name) && /New York|\bNY\b|Brooklyn|Queens|Bronx|Staten Island/i.test(candidate.formattedAddress || ''));
     return exact.length===1?exact[0]:null;
   }
-  function importedPlace(place) {
-    return place.source === 'Google Maps shared list' || place.source === 'Google Takeout CSV';
-  }
   function createController({getPlaces,onUpdate,onLink}) {
-    const data=new Map(),photos=new Map(),detailsInFlight=new Map(),photosInFlight=new Map();
-    const pending=new Map(),checkedPhotos=new Set();
+    const data=new Map(),photos=new Map(),detailsInFlight=new Map(),photoResults=new Map();
+    const manualPhotos=new Map(),shortlistPhotos=new Map(),savedPhotos=new Map();
+    const photoQueues=[manualPhotos,shortlistPhotos,savedPhotos];
     let configured=false,reviewsEnabled=false,draining=false,planning=0;
-    let remaining=0,shortlistReserve=0,checkingId=null;
+    let remaining=0,shortlistReserve=0,checkingId=null,limited=false,statusRequest=null;
     const $=selector=>document.querySelector(selector);
     const node=(tag,cls='',text='')=>{const item=document.createElement(tag);item.className=cls;item.textContent=text;return item;};
     function link(text,url) {const safe=safeURL(url || '');if(!safe)return node('span','',text);const item=node('a','',text);item.href=safe;item.target='_blank';item.rel='noopener noreferrer';return item;}
@@ -81,6 +81,7 @@
     function noteLimit(response) {
       if(response.status===429) {
         remaining=0;
+        limited=true;
         throw pausedError();
       }
     }
@@ -115,12 +116,24 @@
       if(previous) URL.revokeObjectURL(previous.url);
       photos.delete(id);
     }
-    function knownId(place) {return place.googlePlaceId || placeIdFromURL(place.url);}
+    function knownId(place) {return data.get(place.id)?.details.id || place.googlePlaceId || placeIdFromURL(place.url);}
     function detailsCost(place) {return knownId(place) ? 1 : 2;}
-    async function findDetails(place,{interactive=false,rematch=false,confirmedId,background=false}={}) {
+    function wantsReviews(options) {
+      return options.reviews && reviewsEnabled && $('#google-reviews').checked;
+    }
+    function freshSource(entry) {
+      if(!entry) return false;
+      if(entry.photoSource && Date.now() - entry.fetchedAt >= 60_000) entry.photoSource=undefined;
+      return entry.photoSource!==undefined;
+    }
+    async function findDetails(place,{interactive=false,rematch=false,confirmedId,background=false,reviews=false,photo=false}={}) {
+      if(!active(place)) return null;
       let id=confirmedId || (!rematch && knownId(place));
+      let photoMatch;
       if(!id) {
-        const result=await request('search',{name:place.name,neighborhood:place.neighborhood},background);
+        const search={name:place.name,neighborhood:place.neighborhood};
+        if(photo) search.includePhotos=true;
+        const result=await request('search',search,background);
         if(!active(place)) return null;
         const candidates=result.places || [];
         const exact=automaticMatch(place.name,candidates,place.url);
@@ -129,17 +142,30 @@
           return null;
         }
         id=exact.id;
+        if(photo) photoMatch=exact;
       }
-      const details=await request('details',{placeId:id,includeReviews:reviewsEnabled && $('#google-reviews').checked},background);
+      const includeReviews=!photo && wantsReviews({reviews});
+      const fields=photo ? {placeId:id,photosOnly:true} : {placeId:id,includeReviews};
+      const {photos:photoSources,...found}=photoMatch || await request('details',fields,background);
       if(!active(place)) return null;
-      if(data.get(place.id)?.id!==details.id) clearPhoto(place.id);
-      data.set(place.id,details);
+      const previous=data.get(place.id);
+      const samePlace=previous?.details.id===found.id;
+      if(!samePlace) clearPhoto(place.id);
+      const details=photo && samePlace ? {...previous.details,...found} : found;
+      const photoSource=photoSources?.[0]?.name ? photoSources[0] : null;
+      const entry={details,photoSource,fetchedAt:Date.now(),full:!photo || (samePlace && previous.full),
+        reviewed:includeReviews || (photo && samePlace && previous.reviewed)};
+      data.set(place.id,entry);
       onLink(place,id);
-      return details;
+      return entry;
     }
     function getDetails(place,options={}) {
-      if(detailsInFlight.has(place.id)) return detailsInFlight.get(place.id);
-      if(!options.interactive && data.has(place.id)) return Promise.resolve(data.get(place.id));
+      const force=options.force || options.interactive;
+      const covers=entry=>options.photo ? freshSource(entry) : entry?.full && (!wantsReviews(options) || entry.reviewed);
+      const running=detailsInFlight.get(place.id);
+      if(running) return running.then(entry=>entry && (force || !covers(entry)) ? getDetails(place,options) : entry);
+      const cached=data.get(place.id);
+      if(!force && covers(cached)) return Promise.resolve(cached);
       const job=findDetails(place,options).finally(()=>{
         if(detailsInFlight.get(place.id)===job) detailsInFlight.delete(place.id);
         onUpdate();
@@ -148,110 +174,157 @@
       onUpdate();
       return job;
     }
-    function getPhoto(place,details,background=false) {
-      const source=details?.photos?.[0];
-      if(!source || photos.has(place.id)) return Promise.resolve();
-      if(photosInFlight.has(place.id)) return photosInFlight.get(place.id);
-      const job=(async()=>{
-        charge(background);
-        const response=await fetch('/api/places/photo?name='+encodeURIComponent(source.name),{signal:AbortSignal.timeout(20000)});
-        noteLimit(response);
-        if(!response.ok || !/^image\//.test(response.headers.get('Content-Type') || '')) return;
-        const image=await response.blob();
-        if(active(place) && data.get(place.id)===details) {
-          photos.set(place.id,{url:URL.createObjectURL(image),source});
-        }
-      })().finally(()=>{
-        if(photosInFlight.get(place.id)===job) photosInFlight.delete(place.id);
-        onUpdate();
-      });
-      photosInFlight.set(place.id,job);
-      return job;
+    function waiting(place) {
+      return photoQueues.some(queue=>queue.get(place.id)?.url===place.url);
+    }
+    function dequeuePhoto(id) {
+      for(const queue of photoQueues) queue.delete(id);
+    }
+    function photoRefreshError(message) {
+      return Object.assign(new Error(message),{freshReference:true});
+    }
+    async function fetchPhoto(place,entry,background) {
+      if(!entry?.photoSource) return 'unavailable';
+      if(!active(place) || !waiting(place)) return null;
+      charge(background);
+      // Keep the photo name only between the fresh details lookup and the media request.
+      const {name,...source}=entry.photoSource;
+      entry.photoSource=undefined;
+      let response;
+      try {
+        response=await fetch('/api/places/photo?name='+encodeURIComponent(name),{signal:AbortSignal.timeout(20000)});
+      } catch {
+        throw photoRefreshError('The venue photo request could not finish.');
+      }
+      noteLimit(response);
+      if([400,404,410].includes(response.status) || response.status>=500) {
+        throw photoRefreshError('The venue photo needs a new reference.');
+      }
+      if(!response.ok || !/^image\//.test(response.headers.get('Content-Type') || '')) {
+        throw new Error('The venue photo could not be loaded.');
+      }
+      const image=await response.blob().catch(()=>{throw photoRefreshError('The venue photo download could not finish.');});
+      if(!active(place) || !waiting(place) || data.get(place.id)?.details.id!==entry.details.id) return null;
+      photos.set(place.id,{url:URL.createObjectURL(image),source});
+      return 'ready';
+    }
+    async function checkPhoto(place,background) {
+      const entry=await getDetails(place,{photo:true,background});
+      try {
+        return await fetchPhoto(place,entry,background);
+      } catch(error) {
+        if(!error.freshReference || !active(place) || !waiting(place)) throw error;
+        const refreshed=await getDetails(place,{force:true,photo:true,background});
+        return fetchPhoto(place,refreshed,background);
+      }
     }
     async function refreshPlace(place,options={}) {
       try {
-        const details=await getDetails(place,{...options,interactive:true});
-        if(details && active(place)) {
-          checkedPhotos.delete(place.id);
-          queuePhoto(place,true);
+        if(limited || !canSpend(detailsCost(place),false)) await refreshAllowance();
+        const entry=await getDetails(place,{...options,interactive:true,reviews:true});
+        if(entry && active(place) && !photos.has(place.id)) {
+          photoResults.delete(place.id);
+          manualPhotos.set(place.id,place);
+          onUpdate();
           await drainPhotos();
         }
       } catch(error) {say(error.message);}
     }
-    function queuePhoto(place,priority,resume) {
-      if(photos.has(place.id) || checkedPhotos.has(place.id)) return;
-      const existing=pending.get(place.id);
-      pending.set(place.id,{place,priority:priority || existing?.priority,imported:importedPlace(place),resume:resume || existing?.resume});
-    }
     function photoCost(place) {
       if(photos.has(place.id)) return 0;
-      const details=data.get(place.id);
-      return details ? Number(Boolean(details.photos?.[0])) : detailsCost(place)+1;
+      const entry=data.get(place.id);
+      return freshSource(entry) ? Number(Boolean(entry.photoSource)) : 2;
+    }
+    function nextPhoto() {
+      for(const queue of photoQueues) {
+        const background=queue===savedPhotos;
+        for(const place of queue.values()) {
+          if(!active(place)) queue.delete(place.id);
+          else if(canSpend(photoCost(place),background)) return {place,background};
+        }
+      }
+      return null;
     }
     async function drainPhotos() {
       if(!configured || draining || planning) return;
       draining=true;
       try {
-        while(!planning) {
-          for(const [id,task] of pending) if(!active(task.place)) pending.delete(id);
-          const runnable=[...pending.values()].filter(task=>canSpend(photoCost(task.place),!task.priority));
-          const task=runnable.find(task=>task.priority) || runnable[0];
-          if(!task) break;
-          const {place,priority}=task;
+        let task;
+        while(!planning && (task=nextPhoto())) {
+          const {place,background}=task;
           checkingId=place.id;
           onUpdate();
-          let finished=true;
+          let result;
           try {
-            const details=await getDetails(place,{background:!priority});
-            if(active(place)) await getPhoto(place,details,!priority);
+            result=await checkPhoto(place,background);
           } catch(error) {
-            finished=!error.paused;
+            if(!error.paused) result='retryable';
             say(error.message);
           }
-          const currentTask=pending.get(place.id);
-          if(active(place) && finished) {
-            pending.delete(place.id);
-            checkedPhotos.add(place.id);
-            if(!priority && task.resume) {
-              try {localStorage.setItem(task.resume.key,String(task.resume.next));} catch {/* Only the scan position is optional. */}
-            }
-          } else if(!active(place) && currentTask?.place.url===place.url) {
-            pending.delete(place.id);
+          if(result && active(place) && waiting(place)) {
+            photoResults.set(place.id,result);
+            dequeuePhoto(place.id);
           }
           checkingId=null;
           onUpdate();
         }
       } finally {draining=false;}
     }
-    function enrichImported(places,resumeKey) {
-      if(!configured || !$('#google-auto-import').checked) return;
-      const imports=places.filter(importedPlace);
-      if(!imports.length) return;
-      let start=0;
-      if(resumeKey) {
-        try {start=Math.max(0,parseInt(localStorage.getItem(resumeKey),10) || 0)%imports.length;} catch {}
+    function setPhotoQueue(queue,places) {
+      const tasks=places.filter(place=>!photos.has(place.id) && !photoResults.has(place.id));
+      const previous=[...queue.values()];
+      if(tasks.length!==previous.length || tasks.some((place,index)=>
+        place.id!==previous[index].id || place.url!==previous[index].url)) {
+        queue.clear();
+        for(const place of tasks) queue.set(place.id,place);
+        onUpdate();
       }
-      const ordered=[...imports.slice(start),...imports.slice(0,start)];
-      ordered.forEach((place,index)=>{
-        queuePhoto(place,false,resumeKey ? {key:resumeKey,next:(start+index+1)%imports.length} : null);
-      });
-      onUpdate();
       return drainPhotos();
     }
+    function ensureSavedPhotos(places) {
+      return setPhotoQueue(savedPhotos,configured && $('#google-auto-import').checked ? places : []);
+    }
     function checkShortlistPhotos(ids) {
-      if(!configured) return;
-      const wanted=new Set(ids);
-      for(const [id,task] of pending) {
-        if(wanted.has(String(id))) continue;
-        if(task.imported) task.priority=false;
-        else pending.delete(id);
-      }
       const places=new Map(getPlaces().map(place=>[String(place.id),place]));
-      for(const id of ids) {
-        const place=places.get(id);
-        if(place) queuePhoto(place,true);
+      return setPhotoQueue(shortlistPhotos,configured ? ids.map(id=>places.get(id)).filter(Boolean) : []);
+    }
+    async function retryPhoto(place) {
+      if(!configured || !active(place) || photos.has(place.id) || checkingId===place.id) return;
+      try {
+        if(limited || !canSpend(photoCost(place),false)) await refreshAllowance();
+        if(!active(place)) return;
+        if(!canSpend(photoCost(place),false)) throw pausedError();
+        photoResults.delete(place.id);
+        manualPhotos.set(place.id,place);
+        onUpdate();
+        await drainPhotos();
+      } catch(error) {
+        if(active(place)) {
+          photoResults.set(place.id,'retryable');
+          say(error.message);
+          onUpdate();
+        }
       }
-      return drainPhotos();
+    }
+    function photoState(id) {
+      if(photos.has(id)) return 'ready';
+      if(checkingId===id) return 'checking';
+      if(photoResults.has(id)) return photoResults.get(id);
+      for(const queue of photoQueues) {
+        const place=queue.get(id);
+        if(place) return canSpend(photoCost(place),queue===savedPhotos) ? 'pending' : 'retryable';
+      }
+      return 'idle';
+    }
+    function photoStatus(place) {
+      switch(photoState(place.id)) {
+        case 'ready': return '';
+        case 'checking': return 'Checking venue photo…';
+        case 'pending': return 'Photo check pending';
+        case 'retryable': return photoQueues.some(queue=>queue.has(place.id)) ? 'Photo check paused' : 'Photo unavailable';
+        case 'idle': return configured ? 'Photo not checked' : 'Photo unavailable';
+        default: return 'Photo unavailable';
+      }
     }
     async function prepareForPlan(ids) {
       if(!configured) return {checked:0,requested:ids.length,error:'Google details are unavailable.'};
@@ -263,21 +336,24 @@
       try {
         for(const place of targets) {
           if(!active(place)) break;
-          if(!data.has(place.id) && !detailsInFlight.has(place.id) && remaining<detailsCost(place)+reserve) {
+          const entry=data.get(place.id);
+          const needsDetails=!entry?.full || (wantsReviews({reviews:true}) && !entry.reviewed);
+          if(needsDetails && !detailsInFlight.has(place.id) && remaining<detailsCost(place)+reserve) {
             error='Google Maps requests are limited. Some places could not be checked.';
             continue;
           }
-          if(await getDetails(place)) checked++;
+          if(await getDetails(place,{reviews:true})) checked++;
         }
       } catch(failure) {
         error=failure.message;
       } finally {
         planning--;
+        drainPhotos();
       }
       return {checked,requested:targets.length,error};
     }
     function placeURL(place) {
-      const details=data.get(place.id);
+      const details=data.get(place.id)?.details;
       const direct=imports.mapsURL(details?.googleMapsUri || '');
       if(direct) return direct;
       const id=details?.id || knownId(place);
@@ -305,7 +381,9 @@
       return credits;
     }
     function extras(place) {
-      const details=data.get(place.id);if(!details)return null;
+      const entry=data.get(place.id);
+      if(!entry?.full) return null;
+      const details=entry.details;
       const section=node('section','google-details');
       const brand=node('p','google-brand','Google Maps');brand.setAttribute('translate','no');
       brand.append(document.createTextNode(' · '),mapsLink(place));
@@ -334,38 +412,59 @@
     }
     function action(place) {
       if(!configured)return document.createDocumentFragment();
-      const busy=detailsInFlight.has(place.id) || photosInFlight.has(place.id);
-      const item=node('button','secondary',busy?'Finding details…':data.has(place.id)?'Refresh details':'Find details');item.type='button';item.disabled=busy;item.onclick=()=>refreshPlace(place);return item;
+      const busy=detailsInFlight.has(place.id) || checkingId===place.id;
+      const item=node('button','secondary',busy?'Finding details…':data.get(place.id)?.full?'Refresh details':'Find details');item.type='button';item.disabled=busy;item.onclick=()=>refreshPlace(place);return item;
+    }
+    function refreshAllowance() {
+      if(!statusRequest) {
+        statusRequest=(async()=>{
+          const response=await fetch('/api/status');
+          noteLimit(response);
+          if(!response.ok) throw new Error('Google Maps photo checks are unavailable right now.');
+          const status=await response.json();
+          configured=status.configured;
+          reviewsEnabled=status.reviewsEnabled;
+          remaining=configured ? placesBudget(status) : 0;
+          limited=false;
+          shortlistReserve=Number.isFinite(status.requestLimit) ? Math.ceil(status.requestLimit/2) : 0;
+        })().finally(()=>{statusRequest=null;});
+      }
+      return statusRequest;
     }
     async function start() {
       $('#google-match-close').onclick=()=>$('#google-match').close();
       try {
-        const response=await fetch('/api/status');if(!response.ok)throw Error();
-        const status=await response.json();configured=status.configured;reviewsEnabled=status.reviewsEnabled;
-        remaining=placesBudget(status);
-        shortlistReserve=Number.isFinite(status.requestLimit) ? Math.ceil(status.requestLimit/2) : 0;
+        await refreshAllowance();
         say(configured?'Your saved places are ready. We can add categories, photos, and review highlights.':'Place details are unavailable right now. Your saved guide still works.');
       }catch{say('Place details are unavailable right now. Your saved guide still works.');}
       $('#google-reviews').disabled=!reviewsEnabled;$('#google-auto-import').disabled=!configured;$('#google-auto-import').checked=configured;
       onUpdate();
     }
     return {
-      start,action,extras,photoCredit,placeURL,prepareForPlan,enrichImported,checkShortlistPhotos,
-      merge:place=>mergePlace(place,data.get(place.id)),
+      start,action,extras,photoCredit,placeURL,prepareForPlan,ensureSavedPhotos,checkShortlistPhotos,
+      merge:place=>{
+        const entry=data.get(place.id);
+        return entry?.full ? mergePlace(place,entry.details) : place;
+      },
       photo:place=>photos.get(place.id)?.url,
-      photoStatus:place=>checkingId===place.id?'Checking venue photo…':pending.has(place.id)?'Photo check pending':'Photo unavailable',
-      rejectPhoto:(place,url)=>{if(photos.get(place.id)?.url===url) clearPhoto(place.id);},
+      photoState,photoStatus,retryPhoto,
+      rejectPhoto:(place,url)=>{
+        if(photos.get(place.id)?.url===url) {
+          clearPhoto(place.id);
+          photoResults.set(place.id,'retryable');
+          onUpdate();
+        }
+      },
       rematch:place=>refreshPlace(place,{rematch:true}),
       forget:id=>{
         data.delete(id);
-        pending.delete(id);
-        checkedPhotos.delete(id);
+        dequeuePhoto(id);
+        photoResults.delete(id);
         detailsInFlight.delete(id);
-        photosInFlight.delete(id);
         clearPhoto(id);
       }
     };
   }
-  root.GooglePlaces={categoryFromGoogle,reviewTags,mergePlace,placeIdFromURL,safeURL,automaticMatch,mapsFeatureId,importedPlace,createController};
+  root.GooglePlaces={categoryFromGoogle,reviewTags,mergePlace,placeIdFromURL,safeURL,automaticMatch,mapsFeatureId,createController};
   if(typeof module!=='undefined')module.exports=root.GooglePlaces;
 })(typeof globalThis!=='undefined'?globalThis:window);

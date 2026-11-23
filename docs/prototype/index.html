@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Inner Table. · Places from people you trust</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="mobile.css"><link rel="stylesheet" href="discover.css"><link rel="stylesheet" href="guide-layout.css"><script defer src="../analytics.js"></script><script defer src="matcher.js"></script><script defer src="imports.js"></script><script defer src="google.js"></script><script defer src="chat.js"></script><script defer src="accounts.js"></script><script defer src="friends.js"></script><script defer src="demo.js"></script><script defer src="app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Inner Table. · Places from people you trust</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="mobile.css"><link rel="stylesheet" href="discover.css"><link rel="stylesheet" href="guide-layout.css"><script defer src="../analytics.js"></script><script defer src="matcher.js"></script><script defer src="imports.js"></script><script defer src="google.js"></script><script defer src="chat.js"></script><script defer src="accounts.js"></script><script defer src="friends.js"></script><script defer src="demo.js"></script><script defer src="venue-photos.js"></script><script defer src="app.js"></script></head>
 <body>
 <header class="topbar"><a class="wordmark" href="./">Inner Table<span>.</span></a><nav aria-label="Main navigation">
 <button type="button" class="active" data-view="discover" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m16 8-2.5 5.5L8 16l2.5-5.5Z"/></svg><span>Discover</span></button>
@@ -45,7 +45,7 @@
     <label for="occasion" class="visually-hidden">Describe your plan</label>
     <div class="plan-composer">
       <textarea id="occasion" maxlength="2000" rows="2" placeholder="Dinner with a friend, somewhere we can talk…"></textarea>
-      <button id="plan-send" class="primary" type="submit" aria-label="Send plan"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+      <button id="plan-send" class="primary" type="submit">Find places</button>
     </div>
   </div>
 
@@ -54,26 +54,27 @@
     <details class="plan-disclosure"><summary>What’s shared with AI?</summary><p>Sending a plan shares your message and this guide’s notes and available Google descriptions, price ranges and review samples with our AI provider to find a fit. Use Shift + Enter for a new line.</p></details>
     <button id="reset" class="text-button" type="button">New plan</button>
     <button id="show-shortlist" class="text-button" type="button" hidden>View shortlist</button>
+    <button id="browse-friend-places" class="text-button" type="button" aria-controls="results" aria-expanded="false" hidden>Browse saved places</button>
   </div>
 </form>
+<div class="discover-options">
+  <div id="guide-empty" hidden>
+    <p id="guide-empty-copy">Your guide is empty.</p>
+    <button type="button" class="text-button" data-view="places">Add or import places</button>
+  </div>
+  <div id="demo-controls" class="demo-controls"><button id="try-demo" class="text-button" type="button">Browse the NYC sample guide</button></div>
+</div>
 <section class="occasion-starters" aria-labelledby="occasion-starters-title">
-  <h2 id="occasion-starters-title">Try an occasion</h2>
-  <div class="occasion-grid">
+  <h2 id="occasion-starters-title">A few ideas</h2>
+  <div class="occasion-list">
     <div><button type="button" data-sample-image="demo-1" data-prompt="Dinner with a friend, somewhere quiet enough to catch up"><span>Catch up over dinner</span></button></div>
     <div><button type="button" data-sample-image="demo-2" data-prompt="Drinks somewhere lively where we can still hear each other"><span>Drinks and a chat</span></button></div>
     <div><button type="button" data-sample-image="demo-4" data-prompt="An afternoon walk by the water in Brooklyn"><span>A walk by the water</span></button></div>
   </div>
 </section>
-<div class="discover-options">
-  <div id="guide-empty" hidden>
-    <p id="guide-empty-copy">Add a place or import a Maps list to search your own guide.</p>
-    <button type="button" class="text-button" data-view="places">Add saved places</button>
-  </div>
-  <div id="demo-controls" class="demo-controls"><button id="try-demo" class="text-button" type="button">Browse the NYC sample guide</button></div>
-</div>
 </div><div class="recommendations-pane" aria-label="Place recommendations">
 <div id="shortlist-anchor">
-  <div id="plan-start" class="plan-start"><h2>Shortlist</h2><p>Places appear here after you send a plan.</p></div>
+  <div id="plan-start" class="plan-start" hidden><h2>Shortlist</h2><p>The places that fit your plan appear here.</p></div>
   <div class="list-heading" hidden>
     <div><h2 id="shortlist-heading" tabindex="-1">Your shortlist</h2><p id="result-summary" role="status" aria-live="polite"></p></div>
     <button id="back-to-plan" class="text-button" type="button">Back to plan</button>
@@ -199,7 +200,7 @@
 <details class="utility-group" id="guide-settings"><summary>Guide and device settings</summary><p>Copy this browser’s saved places, personal notes and statuses to your private account. Existing account entries are kept when a Maps link appears in both guides.</p>
 <button id="account-copy" type="button" class="primary">Copy device places to my account</button>
 <div class="actions"><button id="account-use-cloud" class="secondary" type="button">Use my account guide</button><button id="account-use-device" class="secondary" type="button">Use this device’s guide</button></div>
-<button id="account-reload" class="secondary" type="button" hidden>Reload account guide</button></details><div class="actions account-quick-links"><button id="tour-replay" class="text-button" type="button">Take the guided tour</button><button id="account-sign-out" class="text-button" type="button">Sign out</button></div>
+<button id="account-reload" class="secondary" type="button" hidden>Reload account guide</button></details><div class="actions account-quick-links"><button id="account-sign-out" class="text-button" type="button">Sign out</button></div>
 </div><button id="account-retry" class="secondary" type="button" hidden>Retry saving account changes</button>
 </section>
 <dialog id="google-match" aria-labelledby="google-match-title"><div class="list-heading"><h2 id="google-match-title">Find your place</h2><button id="google-match-close" type="button" class="secondary">Close</button></div><p class="small">Choose the address that matches your saved place.</p><div id="google-candidates"></div><p class="google-brand" translate="no">Google Maps</p></dialog></main><footer><span class="wordmark">Inner Table<span>.</span></span><span>A small guide, with someone behind every suggestion.</span><a href="../index.html">Building with AI · Pod 9 ↗</a><p class="small">PostHog records pageviews, control clicks and masked sessions for testing. Guide, chat and account areas are blocked in recordings. <a href="../privacy.html">Privacy details</a></p></footer>
