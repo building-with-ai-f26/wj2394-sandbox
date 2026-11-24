@@ -19,6 +19,7 @@ from venue_research import BOROUGHS, CATEGORY_WORDS, CUISINES, KEYWORD_WORDS, no
 COOKIE = 'inner_table_session'
 OAUTH_COOKIE = 'inner_table_google'
 TAGS = {'conversation', 'fun', 'special', 'date', 'group'}
+GOOGLE_SERVICE_FIELDS = ('servesLunch', 'servesDinner', 'goodForGroups', 'liveMusic')
 PROFILE_PHOTO_PREFIX = 'data:image/jpeg;base64,'
 PROFILE_PHOTO_LIMIT = 120_023
 
@@ -44,6 +45,22 @@ def profile_photo_bytes(value):
 def valid_neighborhood(value):
     return (isinstance(value, str) and 2 <= len(value) <= 80 and normalized(value) not in BOROUGHS
             and bool(re.fullmatch(r"[\w][\w .’'&-]+", value)))
+
+
+def maps_evidence_url(value):
+    if not isinstance(value, str) or len(value) > 700 or re.search(r"[\s\\]", value):
+        return None
+    try:
+        url = urlsplit(value)
+        if url.scheme != 'https' or url.username or url.password or url.port:
+            return None
+        if url.hostname == 'maps.google.com' or (
+            url.hostname in ('google.com', 'www.google.com') and re.match(r'^/maps(?:/|$)', url.path)
+        ):
+            return value
+    except ValueError:
+        pass
+    return None
 
 
 def clean_public_details(details):
@@ -365,6 +382,17 @@ class Accounts:
                 place = {**recorded, 'id':candidate['id']}
                 place.update({field:candidate[field] for field in google_fields if field in candidate})
                 place.pop('googleReviews', None)
+                place.pop('googleService', None)
+                service = candidate.get('googleService')
+                if isinstance(service, dict):
+                    service = {field:service[field] for field in GOOGLE_SERVICE_FIELDS
+                               if isinstance(service.get(field), bool)}
+                    if service:
+                        place['googleService'] = service
+                place.pop('googleEvidenceURL', None)
+                google_evidence = maps_evidence_url(candidate.get('googleEvidenceURL'))
+                if google_evidence:
+                    place['googleEvidenceURL'] = google_evidence
                 saved_details = clean_public_details(recorded.get('publicDetails'))
                 checked_details = clean_public_details(candidate.get('publicDetails'))
                 details = {**checked_details, **saved_details}
@@ -373,13 +401,16 @@ class Accounts:
                     for item in [*saved_details.get(field, []), *checked_details.get(field, [])]:
                         by_label.setdefault(item['value'], item)
                     details[field] = list(by_label.values())[:5]
+                evidence = list(details['cuisines'])
                 overrides = recorded.get('detailOverrides', [])
                 if place.get('category', 'unknown') == 'unknown' and 'category' not in overrides and 'category' in details:
                     place['category'] = details['category']['value']
+                    evidence.append(details['category'])
                 if not place.get('neighborhood') and 'neighborhood' not in overrides:
                     google_neighborhood = candidate.get('googleNeighborhood')
                     if 'neighborhood' in details:
                         place['neighborhood'] = details['neighborhood']['value']
+                        evidence.append(details['neighborhood'])
                     elif valid_neighborhood(google_neighborhood):
                         place['neighborhood'] = google_neighborhood
                 if 'tags' in overrides:
@@ -390,7 +421,9 @@ class Accounts:
                     place['webReviewTags'] = tags
                     place['tags'] = list(dict.fromkeys([*place.get('tags', []), *tags]))
                     place['webVenueKeywords'] = [item['value'] for item in details.get('keywords', [])]
+                    evidence.extend([*details['keywords'], *details['tags']])
                 place['webCuisines'] = [item['value'] for item in details.get('cuisines', [])]
+                place['webEvidence'] = [{'label':item['value'], 'url':item['url']} for item in evidence]
                 places.append(place)
         return {**body, 'places':places}
 

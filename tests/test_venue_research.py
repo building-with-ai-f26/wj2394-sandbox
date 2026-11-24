@@ -9,6 +9,7 @@ from test_server import Response
 
 ADDRESS = "192 Grand Street, New York, NY 10013"
 OFFICIAL = "https://tominonyc.com/about"
+EDITORIAL = "https://www.theinfatuation.com/new-york/reviews/tomino-taberna-gallega"
 REDDIT = "https://www.reddit.com/r/FoodNYC/comments/example/"
 
 def venue_response():
@@ -37,19 +38,58 @@ def venue_response():
 
 class ResearchTests(unittest.TestCase):
     def test_sourced_result_retains_links_and_drops_unverified_or_negated_hints(self):
-        result = sourced_venue(venue_response(), "Tomiño Taberna Gallega")
+        result = sourced_venue(venue_response(), "Tomiño Taberna Gallega", "192 Grand St, New York, NY 10013, USA")
         self.assertEqual(result["category"], {"value": "restaurant", "url": OFFICIAL})
         self.assertEqual(result["neighborhood"]["value"], "Nolita")
         self.assertEqual(result["tags"], [{"value": "date", "url": REDDIT}])
         self.assertEqual(result["cuisines"], [{"value": "spanish", "url": OFFICIAL}])
         self.assertEqual(result["keywords"], [{"value": "tapas", "url": OFFICIAL}])
+        self.assertTrue(result["identityVerified"])
         self.assertNotIn("excerpt", json.dumps(result))
 
     def test_requires_explicit_identity_in_citations(self):
         message = venue_response()
         message["annotations"] = []
         self.assertEqual(sourced_venue(message, "Tomiño Taberna Gallega"), {})
-        self.assertEqual(sourced_venue(venue_response(), "Wrong Venue"), {})
+        self.assertEqual(sourced_venue(venue_response(), "Wrong Venue", ADDRESS), {})
+
+    def test_web_only_route_requires_two_independent_sources_for_one_branch(self):
+        message = venue_response()
+        self.assertEqual(sourced_venue(message, "Tomiño Taberna Gallega"), {})
+        message["annotations"].append({"type": "url_citation", "url_citation": {
+            "url": EDITORIAL, "content": "Tomiño Taberna Gallega, 192 Grand St., New York. A local tapas restaurant."
+        }})
+        result = sourced_venue(message, "Tomiño Taberna Gallega")
+        self.assertTrue(result["identityVerified"])
+        self.assertEqual(result["identityUrls"], [OFFICIAL, EDITORIAL])
+        self.assertEqual(result["cuisines"], [{"value": "spanish", "url": OFFICIAL}])
+        message["annotations"].append({"type": "url_citation", "url_citation": {
+            "url": "https://www.eater.com/some-other-article",
+            "content": "Tomiño Taberna Gallega, 488 Broadway, New York, NY 10013."
+        }})
+        self.assertEqual(sourced_venue(message, "Tomiño Taberna Gallega"), {})
+        self.assertTrue(sourced_venue(message, "Tomiño Taberna Gallega", ADDRESS)["identityVerified"])
+        self.assertEqual(sourced_venue(message, "Tomiño Taberna Gallega", "488 Broadway, New York, NY 10013"), {})
+
+    def test_sourced_lunch_casual_and_group_evidence_requires_positive_service_language(self):
+        message = venue_response()
+        facts = json.loads(message["content"])
+        facts["keywords"] += [
+            {"url": OFFICIAL, "value": "lunch", "excerpt": "browse our lunch menu"},
+            {"url": OFFICIAL, "value": "casual dining", "excerpt": "a casual dining room"},
+            {"url": OFFICIAL, "value": "group dining", "excerpt": "private dining for parties of six or more"},
+        ]
+        message["content"] = json.dumps(facts)
+        message["annotations"][0]["url_citation"]["content"] += (
+            " Browse our lunch menu. A casual dining room. Private dining for parties of six or more."
+        )
+        checked = sourced_venue(message, "Tomiño Taberna Gallega", ADDRESS)
+        self.assertEqual([fact["value"] for fact in checked["keywords"]], ["lunch", "casual dining", "group dining", "tapas"])
+        facts["keywords"][1]["excerpt"] = "lunch service is unavailable"
+        message["content"] = json.dumps(facts)
+        message["annotations"][0]["url_citation"]["content"] += " Lunch service is unavailable."
+        checked = sourced_venue(message, "Tomiño Taberna Gallega", ADDRESS)
+        self.assertNotIn("lunch", [fact["value"] for fact in checked["keywords"]])
 
     def test_rejects_branch_mismatches_negated_evidence_and_restricted_sources(self):
         wrong_branch = "https://www.example.com/wrong-branch"
@@ -73,14 +113,16 @@ class ResearchTests(unittest.TestCase):
             message["annotations"].append({"type": "url_citation", "url_citation": {
                 "url": url, "content": f"Tomiño Taberna Gallega. {address}. {excerpt}."
             }})
-        verified = sourced_venue(message, "Tomiño Taberna Gallega")
+        verified = sourced_venue(message, "Tomiño Taberna Gallega", ADDRESS)
         self.assertNotIn("cuisines", verified)
         self.assertNotIn("keywords", verified)
 
     def test_research_request_only_sends_public_identity_and_is_bounded(self):
         service = VenueResearch("fixture-key", "fixture-model", limit=1)
         with patch("venue_research.urlopen", return_value=Response({"choices": [{"message": venue_response()}]})) as upstream:
-            service.check({"name": "Tomiño Taberna Gallega", "area": "Nolita", "note": "private", "status": "been there"})
+            result = service.check({"name": "Tomiño Taberna Gallega", "area": "Nolita", "address": ADDRESS,
+                                    "note": "private", "status": "been there", "prompt": "private occasion", "ownerId": "private-owner"})
+            self.assertTrue(result["identityVerified"])
             payload = json.loads(upstream.call_args.args[0].data)
             self.assertEqual(json.loads(payload["messages"][1]["content"]), {"name":"Tomiño Taberna Gallega","area":"Nolita","city":"New York City"})
             self.assertEqual(payload["tools"][0]["parameters"]["max_uses"], 2)

@@ -99,7 +99,7 @@ class PlannerTests(unittest.TestCase):
             client = Planner('fixture')
             client.recommend(data, shortlist=True)
             retrieval = json.loads(upstream.call_args.args[0].data)['messages'][0]['content']
-            self.assertIn('Missing category, price, address or tags must not exclude', retrieval)
+            self.assertIn('consider promising venues with blank notes', retrieval)
             client.recommend(data)
             ranking = json.loads(upstream.call_args.args[0].data)['messages'][0]['content']
             self.assertIn('A cafe with a garden.', ranking)
@@ -153,12 +153,70 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(payload['reasoning']['effort'], 'low')
             self.assertEqual(payload['response_format']['type'], 'json_schema')
             self.assertNotIn('temperature', payload)
-            data['messages'][0]['content'] = 'Japanese spots under $15 in Soho?'
-            self.assertEqual(planner.recommend(data, shortlist=True)['matches'], [])
+            data['messages'][0]['content'] = 'A casual Japanese lunch spot under $15 in Soho?'
+            self.assertEqual([match['id'] for match in planner.recommend(data, shortlist=True)['matches']], ['sourced'])
+            self.assertEqual(planner.recommend(data)['matches'], [])
             data['messages'][0]['content'] = 'Japanese spots?'
             result['matches'] = [{'id':'unknown','reason':'Details to check.'}]
             response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
             self.assertEqual([match['id'] for match in planner.recommend(data, shortlist=True)['matches']], ['sourced', 'unknown'])
+
+    def test_casual_japanese_lunch_recovers_a_sourced_venue_beyond_six_omitted_notes(self):
+        data = self.data()
+        data['messages'] = [{'role':'user','content':'Do I have a casual Japanese lunch spot in this guide?'}]
+        others = [{'id':f'other-{index}','name':f'Fixture {index}','category':'unknown'} for index in range(6)]
+        data['places'] = [*others, {'id':'lunch','name':'Fixture Lunch Counter','webCuisines':['japanese'],
+                                   'webVenueKeywords':['lunch'],'category':'unknown','note':''}]
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        result = {'reply':'Possible saved places.', 'matches':[{'id':place['id'],'reason':'Check it.'} for place in others]}
+        response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+        with patch('planner.urlopen',return_value=response):
+            matches = Planner('fixture').recommend(data, shortlist=True)['matches']
+        self.assertEqual(matches[0]['id'], 'lunch')
+        self.assertEqual(len(matches),6)
+
+    def test_sparse_saved_hints_can_prompt_lookup_without_proving_cuisine(self):
+        data = self.data()
+        data['messages'] = [{'role':'user','content':'Casual Japanese lunch'}]
+        data['places'] = [{'id':'sparse','name':'Fixture Counter','category':'restaurant','savedCuisineHints':['japanese']},
+                          {'id':'other','name':'Fixture Park','category':'other'}]
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        result = {'reply':'No obvious candidates.', 'matches':[]}
+        with patch('planner.urlopen',return_value=response):
+            planner = Planner('fixture')
+            response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+            self.assertEqual([match['id'] for match in planner.recommend(data, shortlist=True)['matches']], ['sparse'])
+            result['matches'] = [{'id':'sparse','reason':'Only a tentative cue.'}]
+            response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+            self.assertEqual(planner.recommend(data)['matches'], [])
+
+    def test_group_dinner_cites_supplied_sources_and_rejects_unsaved_venues(self):
+        data = self.data()
+        data['messages'] = [{'role':'user','content':'A fun festive group dinner spot'}]
+        place = data['places'][0]
+        place.update({'note':'', 'webVenueKeywords':['group dining','small plates'],
+                      'webEvidence':[{'label':'Group dining','url':'https://example.com/groups'},
+                                     {'label':'Menu','url':'javascript:alert(1)'}],
+                      'googleService':{'goodForGroups':True,'servesLunch':False,'servesDinner':'yes'}})
+        result = {'reply':'Try this saved restaurant.', 'matches':[
+            {'id':'outside','reason':'An unsaved place.','sourceIds':['1']},
+            {'id':place['id'],'reason':'The group menu and small plates suit a celebration.',
+             'sourceIds':['2', '1', '1', None]}]}
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+        with patch('planner.urlopen',return_value=response) as upstream:
+            matches = Planner('fixture').recommend(data)['matches']
+        self.assertEqual([match['id'] for match in matches], [place['id']])
+        self.assertEqual(matches[0]['sources'], [{'label':'Group dining','url':'https://example.com/groups'}])
+        prompt = json.loads(upstream.call_args.args[0].data)['messages'][0]['content']
+        self.assertIn('"googleService": {"servesLunch": false, "goodForGroups": true}', prompt)
+        self.assertNotIn('javascript:alert', prompt)
 
     def test_japanese_followup_excludes_korean_substitution(self):
         data = self.data()

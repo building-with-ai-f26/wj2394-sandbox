@@ -75,7 +75,7 @@ test('automatic web lookup uses public fields for legacy rows and honors availab
   available=true;
   await controller.run();
   await controller.run();
-  assert.deepEqual(calls,[['/api/places/research',{name:legacy.name,area:''}]]);
+  assert.deepEqual(calls,[['/api/places/research',{name:legacy.name,area:'',address:evidence.address}]]);
   assert.equal(output[0][0],legacy.id);
   assert.equal(output[0][1].keywords[0].value,'tapas');
 });
@@ -156,7 +156,7 @@ test('the first list import starts enrichment and older saves resume at the save
   let saves=0;
   const runtime=vm.createContext({
     I:{...I,needsEnrichment:()=>true},
-    places:rows, guideMode:'device', demoMode:false, friendGuide:null,
+    places:rows, guideMode:'device', demoMode:false, friendGuide:null, enrichmentReady:true,
     localStorage:{getItem:key=>stored.get(key)},
     $:()=>status,
     googleReady:Promise.resolve(),
@@ -178,4 +178,100 @@ test('the first list import starts enrichment and older saves resume at the save
   assert.equal(saves,1);
   assert.deepEqual(queued[1],['first-import','older-next','older-first']);
   assert.match(status.textContent,/1 place added to your guide/);
+});
+
+
+const independent={...evidence,identityVerified:true,
+  identityUrls:[official,'https://www.nyctourism.com/restaurants/tomino']};
+
+test('an independently verified branch can enrich a saved place when Google is unavailable',()=>{
+  assert.equal(verifiedDetails(independent).neighborhood.value,'Nolita');
+  assert.equal(verifiedDetails(independent).cuisines[0].value,'spanish');
+  assert.equal(verifiedDetails(evidence),null);
+  assert.equal(verifiedDetails({...independent,identityUrls:[official]}),null);
+  assert.equal(verifiedDetails(independent,{formattedAddress:'192 Grand St, New York 10013-1234'}).neighborhood.value,'Nolita');
+  assert.equal(verifiedDetails(independent,{formattedAddress:'192 Grand St, New York 10014'}),null);
+  assert.equal(verifiedDetails(independent,{formattedAddress:'12 Grand St, Brooklyn, NY'}),null);
+});
+
+test('query-only research verifies active candidate IDs and never sends private fields',async()=>{
+  const legacy={id:'legacy',name:'Tomiño Taberna Gallega',url:'https://maps.google.com/?cid=123',
+    neighborhood:'Nolita',category:'unknown',source:'Restored personal backup',tags:[],note:'Private fixture note'};
+  const other={...legacy,id:'not-a-target',name:'Via Carota'};
+  const calls=[], applied=[];
+  context.fetch=async (route,options)=>{
+    calls.push([route,JSON.parse(options.body)]);
+    return {ok:true,json:async()=>independent};
+  };
+  const controller=createResearch({
+    getPlaces:()=>[legacy,other],available:()=>true,onChange(){},mergeGoogle:place=>place,
+    onDetails:(place,facts)=>applied.push([place.id,facts])
+  });
+  const coverage=await controller.run(['outside-guide',legacy.id,legacy.id]);
+  assert.deepEqual({...coverage},{checked:1,requested:1,available:true});
+  assert.deepEqual(calls,[['/api/places/research',{name:legacy.name,area:'Nolita'}]]);
+  assert.equal(applied[0][0],legacy.id);
+  await controller.run([legacy.id]);
+  assert.equal(calls.length,1);
+});
+
+test('a pending query is checked before the next automatic background venue',async()=>{
+  const [first,next,selected]=['Via Carota','Devoción Williamsburg','Tomiño Taberna Gallega']
+    .map((name,index)=>({id:String(index),name,category:'unknown',neighborhood:'',tags:[],
+      url:'https://maps.google.com/?cid='+String(index+1)}));
+  const calls=[];
+  let unblock;
+  const block=new Promise(resolve=>{unblock=resolve;});
+  context.fetch=async (route,options)=>{
+    const {name}=JSON.parse(options.body);
+    calls.push(name);
+    if(name===first.name) await block;
+    return {ok:true,json:async()=>name===selected.name ? independent : {}};
+  };
+  const controller=createResearch({
+    getPlaces:()=>[first,next,selected],available:()=>true,mergeGoogle:place=>place,onChange(){},onDetails(){}
+  });
+  const background=controller.run();
+  const prioritized=controller.run([selected.id]);
+  unblock();
+  assert.equal((await prioritized).checked,1);
+  await background;
+  assert.deepEqual(calls,[first.name,selected.name,next.name]);
+});
+
+test('Why it fits shows safe distinct cited source links',()=>{
+  const app=fs.readFileSync('docs/prototype/app.js','utf8');
+  const entries=[];
+  const runtime=vm.createContext({
+    I,externalLink:(label,url)=>({label,url}), element:()=>({append(link){this.link=link;}})
+  });
+  vm.runInContext(app.slice(app.indexOf('function appendMatchSources'),app.indexOf('function element(')),runtime);
+  runtime.appendMatchSources({append(item){entries.push(item.link);}},[
+    {label:'Official menu',url:official},{label:'Duplicate',url:official},
+    {label:'Malicious URL',url:'javascript:alert(1)'}
+  ]);
+  assert.deepEqual(entries,[{label:'Official menu',url:official}]);
+});
+
+
+test('planner probes do not cross into a guide selected while providers initialize',async()=>{
+  const original={places:[{id:'approved-friend'}]};
+  let release, options, calls=0;
+  const googleReady=new Promise(resolve=>{release=resolve;});
+  const app=fs.readFileSync('docs/prototype/app.js','utf8');
+  const runtime=vm.createContext({
+    demoMode:false,friendGuide:original,places:[],googleReady,
+    $:()=>({hidden:false}),
+    discoverPlaces:()=>original.places,createPlanChat:funcs=>{options=funcs;},
+    google:{prepareForPlan:async()=>{calls++;}},
+    venueResearch:{run:async()=>{calls++;}}
+  });
+  vm.runInContext(app.slice(app.indexOf('const planChat ='),app.indexOf("for(const id of ['feedback-helpful'")),runtime);
+  const research=options.preparePlaces(['approved-friend']);
+  runtime.friendGuide={places:[{id:'different-friend'}]};
+  release();
+  const coverage=await research;
+  assert.equal(coverage.checked,0);
+  assert.equal(coverage.webChecked,0);
+  assert.equal(calls,0);
 });
