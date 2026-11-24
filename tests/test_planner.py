@@ -1,6 +1,8 @@
+import io
 import json
 import unittest
 from unittest.mock import patch, Mock
+from urllib.error import HTTPError
 
 from planner import Planner, PlanError
 
@@ -39,6 +41,23 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(payload['messages'][-1]['content'], 'Downtown')
         self.assertEqual(usage.record_ai.call_args.args[3]['total_tokens'], 42)
         self.assertNotIn('Downtown', str(usage.record_ai.call_args))
+
+    def test_upstream_rejection_logs_only_status_and_fixed_category(self):
+        for status, category in [(401, "authentication"), (402, "payment_required"),
+                                 (429, "rate_limited"), (503, "provider_unavailable"),
+                                 (502, "upstream_error")]:
+            with self.subTest(status=status):
+                body = io.BytesIO(b'{"message":"fixture private response"}')
+                rejection = HTTPError("https://openrouter.ai/?token=fixture-url", status,
+                                      "fixture upstream message", {}, body)
+                usage = Mock()
+                with patch("planner.urlopen", side_effect=rejection), self.assertLogs("planner", level="WARNING") as logs:
+                    with self.assertRaises(PlanError) as caught:
+                        Planner("fixture-key", usage=usage).recommend(self.data(), shortlist=True)
+                self.assertEqual(logs.output, [f"WARNING:planner:OpenRouter search failed status={status} category={category}"])
+                self.assertEqual(caught.exception.status, 502)
+                self.assertEqual(usage.record_ai.call_args.args[0], status)
+                self.assertTrue(body.closed)
 
     def test_malformed_model_reply_has_safe_error(self):
         response = Mock()

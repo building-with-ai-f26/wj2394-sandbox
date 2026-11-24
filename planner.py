@@ -1,10 +1,24 @@
 """Conversational ranking over a supplied guide. No conversation persistence."""
 import json
+import logging
 import re
 import threading
 import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+
+
+logger = logging.getLogger(__name__)
+OPENROUTER_ERROR_CATEGORIES = {
+    400: "invalid_request",
+    401: "authentication",
+    402: "payment_required",
+    403: "access_denied",
+    404: "model_or_route_unavailable",
+    408: "timeout",
+    429: "rate_limited",
+    503: "provider_unavailable",
+}
 
 
 class PlanError(Exception):
@@ -99,6 +113,8 @@ Use ONLY supplied guide IDs. Never invent venue details, prices, visits, endorse
         except HTTPError as error:
             status = error.code
             error.close()
+            category = OPENROUTER_ERROR_CATEGORIES.get(status, "upstream_error")
+            logger.warning("OpenRouter search failed status=%s category=%s", status, category)
             raise PlanError("The AI connection could not complete this request. Check the local provider setup and credits.", 502) from None
         except (URLError, TimeoutError, ValueError, KeyError, IndexError, TypeError):
             raise PlanError("The conversation could not finish that reply. Please try again.", 502) from None
