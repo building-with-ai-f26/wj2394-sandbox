@@ -144,10 +144,12 @@ class AccountTests(unittest.TestCase):
 
     def test_google_content_is_stripped_and_invalid_snapshot_is_rejected(self):
         incoming = place()
-        incoming.update(_google={'reviews':['Do not persist']},googleReviews=['Do not persist'],googlePlaceId='ChIJfixture')
+        incoming.update(_google={'reviews':['Do not persist']},googleReviews=['Do not persist'],
+                        googleService={'servesLunch':True},googlePlaceId='ChIJfixture')
         cleaned = clean_places([incoming])[0]
         self.assertNotIn('_google',cleaned)
         self.assertNotIn('googleReviews',cleaned)
+        self.assertNotIn('googleService',cleaned)
         self.assertEqual(cleaned['googlePlaceId'],'ChIJfixture')
         client, cookie = self.client()
         with patch.object(client,'request') as request:
@@ -245,3 +247,25 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(result['googleCuisineTags'], ['japanese'])
         self.assertNotIn('googleReviews', result)
         self.assertNotIn('googleReviewTags', result)
+
+    def test_friend_plan_rebuilds_evidence_links_and_respects_field_overrides(self):
+        client, cookie = self.client()
+        official = 'https://www.example.org/menu'
+        maps = 'https://www.google.com/maps/search/?api=1&query_place_id=ChIJfixture'
+        visible = {**place(), 'detailOverrides':['category'], 'publicDetails':{
+            'category':{'value':'restaurant', 'url':official},
+            'neighborhood':{'value':'East Village', 'url':official},
+            'cuisines':[{'value':'japanese', 'url':official}],
+        }}
+        candidate = {**visible, 'googleEvidenceURL':maps,
+                     'googleService':{'servesLunch':True, 'goodForGroups':False, 'liveMusic':'yes', 'reservable':True},
+                     'webEvidence':[{'label':'forged', 'url':'https://www.example.org/elsewhere'}],
+                     'publicDetails':{'keywords':[{'value':'lunch', 'url':official}]}}
+        with patch.object(client,'followed_guide',return_value={'places':[visible]}):
+            plan = client.prepare_friend_plan({'ownerId':OWNER, 'places':[candidate]},cookie)['places'][0]
+            candidate['googleEvidenceURL'] = 'https://www.google.com/url?q=https://www.example.org'
+            bad_map = client.prepare_friend_plan({'ownerId':OWNER, 'places':[candidate]},cookie)['places'][0]
+        self.assertEqual(plan['googleEvidenceURL'], maps)
+        self.assertEqual(plan['googleService'], {'servesLunch':True, 'goodForGroups':False})
+        self.assertNotIn('googleEvidenceURL', bad_map)
+        self.assertEqual(plan['webEvidence'], [{'label':label, 'url':official} for label in ('japanese','East Village','lunch')])

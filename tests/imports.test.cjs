@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {mapsURL,parseCSV,importCSV,ready,validateBackup} = require('../docs/prototype/imports.js');
+const {mapsURL,parseCSV,importCSV,ready,validateBackup,mergeSavedHints} = require('../docs/prototype/imports.js');
 const url = 'https://www.google.com/maps/place/Example';
 test('quoted commas, escaped quotes, multiline notes and BOM are preserved',()=>{
   const csv='\uFEFFTitle,Note,URL\r\n"Example, NYC","Say ""hello""\nand linger",'+url;
@@ -66,4 +66,34 @@ test('suggested tags use notes and list names, disclose inference, and avoid neg
   assert.deepEqual(negative.tags,[]);
   const restored=validateBackup(JSON.stringify({version:1,places:[p]}))[0];
   assert.deepEqual(restored.inferredTags,p.tags);assert.equal(restored.listName,p.listName);
+});
+
+
+test('legacy and new saved places get tentative in-memory notes and list cues without changing saved fields',()=>{
+  const place=importCSV('Title,URL\nTomiño Taberna Gallega,https://maps.google.com/?cid=123',[],'Spanish tapas.csv').places[0];
+  const legacy={...place,source:'Restored personal backup',tags:['group'],inferredTags:[],
+    note:'Good for a catch-up, not a date.',category:'unknown',inGuide:false,neighborhood:'Nolita'};
+  const enriched=mergeSavedHints(legacy);
+  assert.deepEqual(enriched.savedCuisineHints,['spanish']);
+  assert.deepEqual(enriched.savedVenueKeywords,['tapas']);
+  assert.deepEqual(enriched.savedOccasionHints,['conversation']);
+  assert.deepEqual(enriched.tags,['group','conversation']);
+  assert.deepEqual(enriched.inferredTags,['conversation']);
+  assert.equal(enriched.cuisines,undefined);
+  assert.equal(enriched.category,'unknown');
+  assert.equal(enriched.neighborhood,'Nolita');
+  assert.equal(enriched.inGuide,false);
+  assert.equal(enriched.recommended,false);
+  assert.deepEqual(legacy.tags,['group']);
+});
+
+test('dish cues can help retrieval but explicit cuisine, negation and manual tags still win',()=>{
+  const place={name:'Sake Bar Decibel',note:'',listName:'',tags:[]};
+  assert.deepEqual(mergeSavedHints(place).savedCuisineHints,['japanese']);
+  assert.deepEqual(mergeSavedHints({...place,note:'No Japanese food.'}).savedCuisineHints,[]);
+  assert.deepEqual(mergeSavedHints({...place,note:'Korean cuisine.'}).savedCuisineHints,['korean']);
+  const manual=mergeSavedHints({...place,note:'Good for talking.',tags:['special'],detailOverrides:['tags']});
+  assert.deepEqual(manual.savedCuisineHints,[]);
+  assert.deepEqual(manual.savedOccasionHints,[]);
+  assert.deepEqual(manual.tags,['special']);
 });

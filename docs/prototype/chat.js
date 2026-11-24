@@ -11,17 +11,29 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
     const friendGuide = Boolean(getOwner());
     return getPlaces().map(place => ({id: String(place.id), url:place.url, name: place.name, category: place.category,
       neighborhood: place.neighborhood, price: place.price, note: place.note, status: place.status,
-      ...(place.website ? {publicDescription:place.description} : {}),
+      ...(place.website ? {publicDescription:place.description,publicWebsite:place.website} : {}),
       ...(friendGuide && place.publicDetails ? {publicDetails:place.publicDetails} : {}),
       googleAddress: place._google?.formattedAddress || '', googleCategory: place._google?.primaryTypeDisplayName?.text || '',
       googleDescription: place._google?.editorialSummary?.text || '', googlePriceRange: place._google?.priceRange || null,
+      googleEvidenceURL: place._google?.googleMapsUri || '',
+      googleService: Object.fromEntries(['servesLunch','servesDinner','goodForGroups','liveMusic']
+        .filter(field => typeof place._google?.[field] === 'boolean').map(field => [field,place._google[field]])),
       googleNeighborhood: place.googleNeighborhood || '',
       tags: place.tags, googleReviewTags: place.googleReviewTags || [],
+      savedCuisineHints: place.savedCuisineHints || [],
+      savedVenueKeywords: place.savedVenueKeywords || [],
+      savedOccasionHints: place.savedOccasionHints || [],
       googleCuisineTags: place.googleCuisineTags || [],
       googleVenueKeywords: place.googleVenueKeywords || [],
       webCuisines: (place.webCuisineSources || []).map(tag => tag.value),
       webVenueKeywords: (place.webKeywordSources || []).map(tag => tag.value),
-      webReviewTags: (place.webReviewTags || []).map(tag => tag.value)}));
+      webReviewTags: (place.webReviewTags || []).map(tag => tag.value),
+      webEvidence: [
+        ...(place.webCategorySource ? [{label:'Category',url:place.webCategorySource}] : []),
+        ...(place.webNeighborhoodSource ? [{label:'Neighborhood',url:place.webNeighborhoodSource}] : []),
+        ...[...(place.webCuisineSources || []),...(place.webKeywordSources || []),...(place.webReviewTags || [])]
+          .map(fact => ({label:fact.value,url:fact.url}))
+      ]}));
   }
   async function request(route, body, context) {
     const owner = getOwner();
@@ -75,8 +87,10 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       const history = [...messages, turn];
       const candidates = await request('/api/plan/shortlist', {messages:history, places:guide}, context);
       if(context !== revision)return;
-      if(!candidates.matches.length) {
-        const reply = 'I couldn’t identify candidates for that change in your saved guide. Try describing the cuisine and area together, such as “casual Japanese food in NYC.”';
+      const guideIds = new Set(guide.map(place => place.id));
+      const ids = [...new Set(candidates.matches.map(match => match.id))].filter(id => guideIds.has(id));
+      if(!ids.length) {
+        const reply = 'I couldn’t find a strong lead in this saved guide for that plan. Try adding a neighborhood or changing one preference.';
         messages.push(turn,{role:'assistant',content:reply});
         progress.remove();
         append('assistant',reply);
@@ -84,12 +98,19 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
         status.textContent = 'You can refine the plan below.';
         return;
       }
-      progress.textContent = 'Checking available details for your plan…';
+      progress.textContent = 'Researching places from your guide…';
       transcript.scrollTop = transcript.scrollHeight;
-      const coverage = await preparePlaces(candidates.matches.map(match => match.id));
+      const coverage = await preparePlaces(ids);
       if(context !== revision)return;
       const details = new Map(guideSummary().map(place => [place.id, place]));
-      const selected = candidates.matches.map(match => details.get(match.id)).filter(Boolean);
+      const selected = ids.map(id => details.get(id)).filter(Boolean);
+      if(!selected.length) {
+        status.textContent = 'Your guide changed during the search. Try again with the current guide.';
+        input.value = text;
+        question.remove();
+        transcript.hidden = !messages.length;
+        return;
+      }
       progress.textContent = 'Finding the best fit from the available details…';
       transcript.scrollTop = transcript.scrollHeight;
       const result = await request('/api/plan', {messages:history, places:selected}, context);
@@ -98,7 +119,13 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       progress.remove();
       append('assistant', result.reply);
       onResults(result);
-      status.textContent = (coverage.sample ? 'Suggestions use the public details in the NYC sample guide. ' : `${coverage.checked} of ${coverage.requested} candidates checked on Google Maps. `) + (coverage.error ? 'Google details are unavailable for some places. Suggestions use the saved notes and details currently available. ' : '') + 'Keep chatting to refine the shortlist.';
+      if(coverage.sample) status.textContent = 'Suggestions use the public details in the NYC sample guide.';
+      else {
+        const checks = [];
+        if(coverage.checked) checks.push(`${coverage.checked} checked on Google Maps`);
+        if(coverage.webChecked) checks.push(`${coverage.webChecked} checked against public venue sources`);
+        status.textContent = checks.length ? checks.join(' · ') + '.' : 'Suggestions use the available details in your guide.';
+      }
     } catch (error) {
       if (context !== revision) return;
       status.textContent = error instanceof SyntaxError ? 'The conversation could not reach Inner Table. Please try again shortly.' : error.message;

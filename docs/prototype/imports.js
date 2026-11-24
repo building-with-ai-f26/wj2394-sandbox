@@ -7,9 +7,9 @@
     'portuguese','spanish','taiwanese','thai','turkish','vietnamese'
   ]);
   const KEYWORDS = new Set([
-    'bakery','brunch','coffee','cocktails','dim sum','izakaya','live music','noodles','omakase','outdoor seating',
-    'pizza','ramen','sake','seafood','small plates','sushi','tacos','tapas','tasting menu','udon','vegan options',
-    'vegetarian options','wine','yakitori'
+    'bakery','brunch','casual dining','coffee','cocktails','dim sum','group dining','izakaya','live music','lunch',
+    'noodles','omakase','outdoor seating','pizza','ramen','sake','seafood','small plates','sushi','tacos','tapas',
+    'tasting menu','udon','vegan options','vegetarian options','wine','yakitori'
   ]);
   function mapsURL(value) {
     try {
@@ -60,6 +60,45 @@
       ['group',/\bgroup\b|\bfriends\b/i,/not (?:for )?(?:a )?group/i]
     ];
     return rules.filter(([,positive,negative])=>positive.test(text) && !negative.test(text)).map(([tag])=>tag);
+  }
+  const SAVED_DISH_CUES = {
+    sushi:'japanese',ramen:'japanese',izakaya:'japanese',udon:'japanese',omakase:'japanese',
+    sake:'japanese',yakitori:'japanese','dim sum':'chinese',tacos:'mexican',tapas:'spanish'
+  };
+  function cuePattern(value) {
+    const phrase=value.replaceAll(' ','[\\s-]+');
+    return {
+      value,
+      mention:new RegExp('\\b'+phrase+'\\b','i'),
+      rejected:new RegExp('\\b(?:no|not|avoid|without|except|skip)\\b(?:\\s+\\w+){0,3}\\s+'+phrase+'\\b','i'),
+    };
+  }
+  const cuisineCues=[...CUISINES].map(cuePattern), keywordCues=[...KEYWORDS].map(cuePattern);
+  const savedHints=new WeakMap();
+  function mergeSavedHints(place,recorded=place) {
+    if(detailOverrides(recorded.detailOverrides).includes('tags')) {
+      return {...place,savedCuisineHints:[],savedVenueKeywords:[],savedOccasionHints:[]};
+    }
+    const text=[recorded.name,recorded.note,recorded.listName].filter(Boolean).join('\n')
+      .normalize('NFKD').replace(/\p{M}/gu,'');
+    let hints=savedHints.get(recorded);
+    if(hints?.text!==text) {
+      const cuisineHints=cuisineCues.filter(cue=>cue.mention.test(text) && !cue.rejected.test(text)).map(cue=>cue.value);
+      const keywordHints=keywordCues.filter(cue=>cue.mention.test(text) && !cue.rejected.test(text)).map(cue=>cue.value);
+      if(!cuisineHints.length) {
+        for(const keyword of keywordHints) {
+          const cuisine=SAVED_DISH_CUES[keyword];
+          if(cuisine && !cuisineCues.find(cue=>cue.value===cuisine).rejected.test(text)) cuisineHints.push(cuisine);
+        }
+      }
+      hints={text,cuisineHints:[...new Set(cuisineHints)],keywordHints,occasionHints:suggestedTags(text)};
+      savedHints.set(recorded,hints);
+    }
+    const occasions=[...new Set([...(recorded.inferredTags || []),...hints.occasionHints])];
+    const added=occasions.filter(tag=>!(place.tags || []).includes(tag));
+    return {...place,tags:[...(place.tags || []),...added],
+      inferredTags:[...new Set([...(place.inferredTags || []),...added])],
+      savedCuisineHints:hints.cuisineHints,savedVenueKeywords:hints.keywordHints,savedOccasionHints:occasions};
   }
   function importCSV(text, existing = [], fileName = '') {
     const rows = parseCSV(text);
@@ -186,6 +225,6 @@
       return {...(overrides.length && {detailOverrides:overrides}),...(evidence && {publicDetails:evidence}),id:crypto.randomUUID(),name:p.name.trim(),url:mapsURL(p.url),note:p.note,neighborhood:p.neighborhood.trim(),category:p.category,status:p.status,recommended:p.recommended,inGuide:typeof p.inGuide === 'boolean' ? p.inGuide : p.recommended,price:p.price,tags:[...new Set(p.tags)],inferredTags:(p.inferredTags || []).filter(tag=>p.tags.includes(tag)),listName:p.listName || '',source:['Google Takeout CSV','Google Maps shared list'].includes(p.source) ? p.source : 'Restored personal backup',...(typeof p.googlePlaceId === 'string' && /^[A-Za-z0-9_-]{5,255}$/.test(p.googlePlaceId) ? {googlePlaceId:p.googlePlaceId} : {})};
     });
   }
-  root.InnerTableImport = {mapsURL,parseCSV,importCSV,ready,visitLabel,categoryLabel,suggestedTags,validateBackup,imported,sourceURL,detailOverrides,cleanPublicDetails,mergePublicDetails,combinePublicDetails,needsEnrichment,CUISINES};
+  root.InnerTableImport = {mapsURL,parseCSV,importCSV,ready,visitLabel,categoryLabel,suggestedTags,validateBackup,imported,sourceURL,detailOverrides,cleanPublicDetails,mergePublicDetails,combinePublicDetails,mergeSavedHints,needsEnrichment,CUISINES};
   if (typeof module !== 'undefined') module.exports = root.InnerTableImport;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

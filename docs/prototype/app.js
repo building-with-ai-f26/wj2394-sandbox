@@ -5,6 +5,7 @@ let account = null, friends = null, friendGuide = null, guideMode = 'device';
 let signedInAccountId = null;
 let places = [], pending = null, storageBroken = false;
 let demoMode = false, browseFriendPlaces = false;
+let enrichmentReady = false;
 const selectedPlaces = new Set();
 const transientPublicDetails = new Map();
 
@@ -52,7 +53,7 @@ const google=GooglePlaces.createController({
   onUpdate:()=>{
     if(!$('#places-view').hidden) renderSaved();
     if(!$('#discover-view').hidden) renderDiscover();
-    venueResearch.run();
+    if(enrichmentReady) venueResearch.run();
   },
   onLink:(place,id)=>{
     const current=places.find(item=>item.id===place.id && item.url===place.url);
@@ -101,6 +102,7 @@ function ownerEnrichmentKey() {
 }
 
 function queueGuideDetails(priority = []) {
+  if(!enrichmentReady) return;
   googleReady.then(() => {
     const imports=priority.filter(place=>places.includes(place));
     const records=imports.length ? places : enrichmentRecords();
@@ -119,8 +121,8 @@ function queueGuideDetails(priority = []) {
 function placeDetails(place) {
   const details=google.merge(place);
   const supplement=transientPublicDetails.get(place.id);
-  return I.mergePublicDetails(supplement
-    ? {...details,publicDetails:I.combinePublicDetails(place.publicDetails,supplement)} : details);
+  return I.mergeSavedHints(I.mergePublicDetails(supplement
+    ? {...details,publicDetails:I.combinePublicDetails(place.publicDetails,supplement)} : details),place);
 }
 
 function metadataFor(place) {
@@ -159,6 +161,19 @@ function addDetailSources(section, place) {
     const domain = InnerTableEnrichment.sourceLabel(url);
     line.append(externalLink(url===google.placeURL(place) ? 'Google Maps' : domain,url));
     section.append(line);
+  }
+}
+
+function appendMatchSources(section,sources) {
+  if(!Array.isArray(sources)) return;
+  const shown=new Set();
+  for(const source of sources.slice(0,5)) {
+    const url=I.sourceURL(source?.url);
+    if(!url || shown.has(url) || typeof source.label!=='string' || !source.label.trim()) continue;
+    shown.add(url);
+    const citation=element('p','small');
+    citation.append(externalLink(source.label.trim().slice(0,120),url));
+    section.append(citation);
   }
 }
 
@@ -290,9 +305,15 @@ const planChat = createPlanChat({
   onAccessDenied: () => friends.leave('This friend’s guide is no longer available. You are back in your own guide.'),
   getPlaces: discoverPlaces,
   preparePlaces: async ids => {
-    if(demoMode) return {requested:ids.length, checked:0, error:'', sample:true};
+    if(demoMode) return {requested:ids.length,checked:0,error:'',sample:true};
+    const scope=friendGuide || places;
+    const activeIds=new Set(discoverPlaces().map(place=>String(place.id)));
+    const targets=[...new Set(ids.map(String))].filter(id=>activeIds.has(id));
+    const stillActive=()=>!demoMode && (friendGuide || places)===scope && !$('#discover-view').hidden;
     await googleReady;
-    return google.prepareForPlan(ids);
+    if(!stillActive()) return {requested:targets.length,checked:0,webChecked:0,error:''};
+    const [coverage,web]=await Promise.all([google.prepareForPlan(targets),venueResearch.run(targets)]);
+    return {...coverage,webChecked:stillActive() ? web.checked : 0};
   },
   onResults: result => {
     planResults = result;
@@ -344,7 +365,9 @@ function renderDiscover() {
   const outcome = InnerTableMatcher.matchPlaces(data,'');
   if(browsing) outcome.matches = data.map(place=>({place}));
   if (showShortlist) {
-    outcome.matches = planResults.matches.map(match => ({place: data.find(place => String(place.id) === match.id), reasons: ['AI suggestion · ' + match.reason]})).filter(({place}) => place);
+    outcome.matches = planResults.matches.map(match => ({
+      place:data.find(place=>String(place.id)===match.id),reasons:[match.reason],sources:match.sources
+    })).filter(({place})=>place);
     outcome.recognized = true;
     outcome.unsupported = false;
   }
@@ -365,7 +388,7 @@ function renderDiscover() {
     observePhotoRows(results,browsing && !$('#discover-view').hidden);
     return;
   }
-  outcome.matches.forEach(({place,reasons}) => {
+  outcome.matches.forEach(({place,reasons,sources}) => {
     const card = element('article','card');
     card.dataset.placeId = place.id;
     const body = element('div','card-body');
@@ -383,7 +406,8 @@ function renderDiscover() {
     detail.append(element('summary','','Place details'));
     if(showShortlist) {
       const fit = element('section','reason');
-      fit.append(element('h4','','Why it fits'),element('p','',reasons.join(' ').replace(/^AI suggestion · /,'')));
+      fit.append(element('h4','','Why it fits'),element('p','',reasons.join(' ')));
+      appendMatchSources(fit,sources);
       detail.append(fit);
     }
     const links = element('div','place-links');
@@ -905,5 +929,7 @@ account = createAccounts({
 renderSaved();
 renderDiscover();
 const googleReady = google.start();
-account.start();
-queueGuideDetails();
+account.start().finally(()=>{
+  enrichmentReady=true;
+  queueGuideDetails();
+});

@@ -105,3 +105,11 @@ Automatic enrichment covers older saved places, new imports, and visible places 
 The release branch passed 84 JavaScript and 55 Python tests without provider charges. Checks covered both stages of friend-guide chat, source evidence, hidden-row exclusion, manual overrides, and the first confirmed list import. Signed-in guide coverage and comparative model quality await live testing.
 
 Observed verification checkpoints cover approximately 10:26–10:43 a.m. New York time, including tool waits. This is elapsed time. Builder hours await reconciliation.
+
+### Research within saved places, November 24
+
+The hosted demo on `83a3c75` checked zero candidates on Google because Google Places was unconfigured. With the builder’s approval, the existing key was connected and the same revision was redeployed. Render marked it live at 11:19 a.m. New York time. The health endpoint succeeded and the status endpoint reported Google Places configured. A separately approved single live Google lookup from that revision returned Via Carota at 51 Grove Street. Signed-in guide coverage awaits testing.
+
+The local research branch adds tentative retrieval tags for new imports and older saves, and lets official and editorial venue sources corroborate the exact place when Google details are unavailable. Chat considers the entire active guide, includes plausible sparse saved entries for checks, and uses public lunch and group-dining signals, when available, to explain fit. Relevant source links appear under Why it fits. Manual edits and guide permissions take precedence. Paid public web research remains off on the live demo.
+
+The new release passed 91 JavaScript and 61 Python checks with mocked providers. They include an uncategorized Japanese lunch option beyond the first six, a sparse candidate that requires evidence, a festive group-dinner recommendation with a source, a wrong branch, and an unsaved recommendation rejection. Observed work checkpoints span approximately 11:18–11:23 a.m. New York time, including tool waits. This is elapsed time and builder hours await reconciliation.

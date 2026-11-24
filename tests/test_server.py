@@ -104,14 +104,22 @@ class GoogleClientTests(unittest.TestCase):
         client = GooglePlaces('fixture-not-a-real-key')
         with self.assertRaises(PlacesError):
             client.details('ChIJfixture', True)
-        with patch('server.urlopen', return_value=Response({'reviews': [{}] * 8, 'photos': [{}] * 8})) as upstream:
-            data = GooglePlaces('fixture-not-a-real-key', reviews=True).details('ChIJfixture', True)
+        reviewed = GooglePlaces('fixture-not-a-real-key', reviews=True)
+        service = {'servesLunch': True, 'servesDinner': True, 'goodForGroups': False, 'liveMusic': False}
+        with patch('server.urlopen', side_effect=[Response({'id':'ChIJfixture'}),
+                                                   Response({'reviews': [{}] * 8, 'photos': [{}] * 8, **service})]) as upstream:
+            reviewed.details('ChIJfixture')
+            regular_fields = upstream.call_args.args[0].get_header('X-goog-fieldmask').split(',')
+            self.assertTrue(set(service).isdisjoint(regular_fields))
+            data = reviewed.details('ChIJfixture', True)
             self.assertEqual(len(data['reviews']), 5)
             self.assertEqual(len(data['photos']), 1)
             fields = upstream.call_args.args[0].get_header('X-goog-fieldmask').split(',')
             self.assertIn('reviews', fields)
             self.assertIn('addressComponents', fields)
             self.assertIn('websiteUri', fields)
+            self.assertTrue(set(service).issubset(fields))
+            self.assertEqual({field:data[field] for field in service}, service)
 
     def test_invalid_ids_and_photo_urls_are_rejected(self):
         client = GooglePlaces('fixture-not-a-real-key')

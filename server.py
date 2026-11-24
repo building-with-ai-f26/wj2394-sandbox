@@ -188,7 +188,7 @@ class GooglePlaces:
         if not photos_only and not enrichment_only:
             fields += ",priceRange,websiteUri"
         if include_reviews:
-            fields += ",reviews,editorialSummary"
+            fields += ",reviews,editorialSummary,servesLunch,servesDinner,goodForGroups,liveMusic"
         data = self.request("places/" + quote(place_id, safe=""), fields=fields)
         # Only one photo is needed per card. Review order remains Google's relevance order.
         data["photos"] = data.get("photos", [])[:1]

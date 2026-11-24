@@ -52,9 +52,11 @@ test('sample plans bypass Google lookup and friend-guide API ownership', async (
   const source = fs.readFileSync('docs/prototype/app.js','utf8');
   let options, lookups=0;
   const context = vm.createContext({
-    demoMode:true, discoverPlaces(){}, friends:{getOwner:() => ({id:'friend'})},
+    demoMode:true, discoverPlaces:()=>[{id:'friend-place'}], friends:{getOwner:() => ({id:'friend'})},
+    friendGuide:{places:[{id:'friend-place'}]}, places:[],
     createPlanChat:input => {options=input;}, googleReady:Promise.resolve(),
     google:{prepareForPlan:async () => {lookups++;return {checked:1};}},
+    venueResearch:{run:async () => ({checked:0,available:false})},
     renderDiscover(){}, $:() => ({})
   });
   vm.runInContext(source.slice(source.indexOf('const planChat ='),source.indexOf("for(const id of ['feedback-helpful'")),context);
@@ -85,7 +87,10 @@ test('friend chat sends sourced cuisine through both stages without sending full
     },
     fetch:async (route, {body}) => {
       requests.push({route, body:JSON.parse(body)});
-      return {ok:true, json:async () => response};
+      const result = route.endsWith('/shortlist')
+        ? {...response,matches:[{id:'outside-guide',reason:'Invalid candidate.'},...response.matches]}
+        : response;
+      return {ok:true, json:async () => result};
     }
   });
   vm.runInContext(fs.readFileSync('docs/prototype/chat.js','utf8'),context);
