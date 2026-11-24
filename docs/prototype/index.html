@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Inner Table. · Places from people you trust</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="mobile.css"><link rel="stylesheet" href="discover.css"><link rel="stylesheet" href="guide-layout.css"><script defer src="../analytics.js"></script><script defer src="matcher.js"></script><script defer src="imports.js"></script><script defer src="google.js"></script><script defer src="chat.js"></script><script defer src="accounts.js"></script><script defer src="friends.js"></script><script defer src="demo.js"></script><script defer src="venue-photos.js"></script><script defer src="app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Inner Table. · Places from people you trust</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="mobile.css"><link rel="stylesheet" href="discover.css"><link rel="stylesheet" href="guide-layout.css"><script defer src="../analytics.js"></script><script defer src="matcher.js"></script><script defer src="imports.js"></script><script defer src="google.js"></script><script defer src="enrichment.js"></script><script defer src="chat.js"></script><script defer src="accounts.js"></script><script defer src="friends.js"></script><script defer src="demo.js"></script><script defer src="venue-photos.js"></script><script defer src="app.js"></script></head>
 <body>
 <header class="topbar"><a class="wordmark" href="./">Inner Table<span>.</span></a><nav aria-label="Main navigation">
 <button type="button" class="active" data-view="discover" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m16 8-2.5 5.5L8 16l2.5-5.5Z"/></svg><span>Discover</span></button>
@@ -51,7 +51,7 @@
 
   <p id="plan-status" class="small" role="status" aria-live="polite"></p>
   <div class="plan-options">
-    <details class="plan-disclosure"><summary>What’s shared with AI?</summary><p>Sending a plan shares your message and this guide’s notes and available Google descriptions, price ranges and review samples with our AI provider to find a fit. Use Shift + Enter for a new line.</p></details>
+    <details class="plan-disclosure"><summary>What’s shared with AI?</summary><p>Sending a plan shares your message, the active guide’s notes and tags, and available venue details and review keywords with our AI provider. Use Shift + Enter for a new line.</p></details>
     <button id="reset" class="text-button" type="button">New plan</button>
     <button id="show-shortlist" class="text-button" type="button" hidden>View shortlist</button>
     <button id="browse-friend-places" class="text-button" type="button" aria-controls="results" aria-expanded="false" hidden>Browse saved places</button>
@@ -100,7 +100,7 @@
 <div><label for="place-url">Google Maps link</label><input id="place-url" type="url" required maxlength="2000" placeholder="https://maps.app.goo.gl/…"></div>
 </div>
 <details id="place-optional" class="utility-group"><summary>Optional details</summary><div class="editor-grid">
-<div><label for="place-category">Category</label><select id="place-category"><option value="unknown">Uncategorized</option><option value="restaurant">Restaurant</option><option value="cafe">Café</option><option value="bar">Bar</option><option value="shop">Shop</option><option value="nightclub">Nightclub</option><option value="other">Other</option></select></div>
+<div><label for="place-category">Category</label><select id="place-category"><option value="unknown">Uncategorized</option><option value="auto" hidden>Use suggested category</option><option value="restaurant">Restaurant</option><option value="cafe">Café</option><option value="bar">Bar</option><option value="shop">Shop</option><option value="nightclub">Nightclub</option><option value="other">Other</option></select></div>
 <div><label for="place-neighborhood">NYC neighborhood (optional)</label><input id="place-neighborhood" maxlength="100" placeholder="e.g. West Village"></div>
 <div><label for="place-visited">Visit status (optional)</label><select id="place-visited"><option value="not specified">Not specified</option><option value="been there">Been there</option><option value="want to try">Want to try</option></select></div>
 <div><label for="place-price">All-in estimate per person ($, optional)</label><input id="place-price" type="number" min="1" max="10000" step="0.01" placeholder="Leave blank if unknown"></div>
@@ -108,7 +108,7 @@
 <fieldset><legend>Good for… <span>(only choose what you know)</span></legend><div class="tag-options"><label><input type="checkbox" name="tag" value="conversation"> Talking / catch-ups</label><label><input type="checkbox" name="tag" value="fun"> A fun evening</label><label><input type="checkbox" name="tag" value="special"> Something special</label><label><input type="checkbox" name="tag" value="date"> A date</label><label><input type="checkbox" name="tag" value="group"> A group</label></div></fieldset>
 <p id="inferred-info" class="small"></p><label class="check-label"><input id="place-in-guide" type="checkbox" checked> Include in my guide and suggestions</label><label class="check-label"><input id="place-recommend" type="checkbox"> I personally recommend this place</label></details>
 <p id="editor-error" role="alert"></p><div class="actions"><button class="primary" type="submit">Save place</button></div></form>
-<div id="list-import" hidden>
+<div id="list-import" hidden><p class="small">After import, we check public venue names and any saved neighborhoods for available details. Your notes and visit status stay in your guide.</p>
   <div class="list-methods" role="group" aria-label="Import method">
     <button id="import-by-link" class="text-button" type="button" aria-pressed="true" aria-controls="maps-list-panel">Google Maps shared link</button>
     <button id="import-by-csv" class="text-button" type="button" aria-pressed="false" aria-controls="csv-panel">Google Takeout CSV</button>

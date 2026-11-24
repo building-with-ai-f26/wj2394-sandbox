@@ -12,7 +12,7 @@ function demoFixture() {
   const context = vm.createContext({
     URL,
     demoMode:false, places:personal, friendGuide:friend, tour:{hidden:true},
-    I:{ready:place => place.inGuide},
+    I:{ready:place => place.inGuide}, placeDetails:place=>context.google.merge(place), queueGuideDetails(){},
     google:{merge:place => {merges++;return place;}},
     planChat:{reset:() => {resets++;}}, renderDiscover() {},
     $:selector => ({addEventListener:(_,handler) => controls.set(selector,handler),focus:() => {focused = selector;}})
@@ -65,4 +65,47 @@ test('sample plans bypass Google lookup and friend-guide API ownership', async (
   assert.equal(options.getOwner().id,'friend');
   await options.preparePlaces(['friend-place']);
   assert.equal(lookups,1);
+});
+
+test('friend chat sends sourced cuisine through both stages without sending full reviews', async () => {
+  const requests = [];
+  const results = [];
+  const input = {value:'Japanese spots?', addEventListener() {}};
+  const nodes = new Map([['#occasion', input], ['#plan-messages', {append() {}}]]);
+  const place = {
+    id:'fixture-place', url:'https://www.google.com/maps/search/?api=1&query=Fixture',
+    name:'Fixture Counter', category:'unknown', tags:[], googleCuisineTags:['japanese'],
+    _google:{reviews:[{text:{text:'Fixture review must stay out of the request.'}}]}
+  };
+  const response = {reply:'Found a saved match.', matches:[{id:place.id,reason:'Japanese cuisine evidence.'}]};
+  const context = vm.createContext({
+    document:{
+      querySelector:selector => nodes.get(selector) ?? {},
+      createElement:() => ({remove() {}})
+    },
+    fetch:async (route, {body}) => {
+      requests.push({route, body:JSON.parse(body)});
+      return {ok:true, json:async () => response};
+    }
+  });
+  vm.runInContext(fs.readFileSync('docs/prototype/chat.js','utf8'),context);
+  const chat = context.createPlanChat({
+    getPlaces:() => [place],
+    getOwner:() => ({id:'fixture-owner'}),
+    preparePlaces:async ids => {
+      assert.deepEqual(Array.from(ids), [place.id]);
+      place.webCuisineSources = [{value:'japanese',url:'https://example.com/menu'}];
+      place.publicDetails = {cuisines:place.webCuisineSources};
+      return {checked:1, requested:1};
+    },
+    onResults:result => results.push(result)
+  });
+  await chat.submit();
+  assert.deepEqual(requests.map(({route}) => route), ['/api/account/plan/shortlist','/api/account/plan']);
+  assert.ok(requests.every(({body}) => body.ownerId === 'fixture-owner'));
+  assert.deepEqual(requests[0].body.places[0].googleCuisineTags,['japanese']);
+  assert.deepEqual(requests[1].body.places[0].webCuisines,['japanese']);
+  assert.deepEqual(requests[1].body.places[0].publicDetails,place.publicDetails);
+  assert.ok(requests.every(({body}) => !('googleReviews' in body.places[0])));
+  assert.deepEqual(results,[response]);
 });

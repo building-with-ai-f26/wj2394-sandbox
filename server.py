@@ -13,7 +13,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from usage import UsageLog
-from planner import Planner, PlanError
+from planner import DEFAULT_SEARCH_MODEL, Planner, PlanError
+from venue_research import VenueResearch
 from accounts import Accounts, AccountError
 from shared_lists import fetch_shared_list, SharedListError
 
@@ -85,6 +86,10 @@ class PlacesError(Exception):
 
 
 PLACE_PHOTO_FIELDS = "id,photos"
+PLACE_ENRICHMENT_FIELDS = (
+    "id,displayName,formattedAddress,addressComponents,primaryType,primaryTypeDisplayName,"
+    "types,photos,googleMapsUri,attributions"
+)
 
 
 class GooglePlaces:
@@ -141,6 +146,8 @@ class GooglePlaces:
                     sku = "Place Photos"
                 elif fields == PLACE_PHOTO_FIELDS:
                     sku = "Place Details Essentials IDs Only"
+                elif fields == PLACE_ENRICHMENT_FIELDS:
+                    sku = "Place Details Pro"
                 else:
                     sku = "Place Details Enterprise + Atmosphere" if fields and "reviews" in fields else "Place Details Enterprise"
                 self.usage.record(operation, http_status, round((time.monotonic() - started) * 1000), sku)
@@ -166,19 +173,21 @@ class GooglePlaces:
                 place["photos"] = (place.get("photos") or [])[:1]
         return {"places": places}
 
-    def details(self, place_id, include_reviews=False, photos_only=False):
+    def details(self, place_id, include_reviews=False, photos_only=False, enrichment_only=False):
         if not isinstance(place_id, str) or not PLACE_ID.fullmatch(place_id):
             raise PlacesError("Invalid Google place ID.")
         if not isinstance(include_reviews, bool):
             raise PlacesError("Invalid review option.")
-        if not isinstance(photos_only, bool) or (photos_only and include_reviews):
-            raise PlacesError("Invalid photo option.")
+        if not isinstance(photos_only, bool) or not isinstance(enrichment_only, bool):
+            raise PlacesError("Invalid place details option.")
+        if sum((include_reviews, photos_only, enrichment_only)) > 1:
+            raise PlacesError("Choose one place details option.")
         if include_reviews and not self.reviews:
             raise PlacesError("Reviews are disabled locally. Set GOOGLE_PLACES_REVIEWS_ENABLED=true to enable the higher-priced review tier.")
-        fields = "id,displayName,formattedAddress,primaryType,primaryTypeDisplayName,types,photos,googleMapsUri,attributions,priceRange"
-        if photos_only:
-            fields = PLACE_PHOTO_FIELDS
-        elif include_reviews:
+        fields = PLACE_PHOTO_FIELDS if photos_only else PLACE_ENRICHMENT_FIELDS
+        if not photos_only and not enrichment_only:
+            fields += ",priceRange,websiteUri"
+        if include_reviews:
             fields += ",reviews,editorialSummary"
         data = self.request("places/" + quote(place_id, safe=""), fields=fields)
         # Only one photo is needed per card. Review order remains Google's relevance order.
@@ -312,7 +321,11 @@ class Handler(SimpleHTTPRequestHandler):
                 result, cookie = self.server.accounts.handle('GET', route.path, {}, self.headers.get('Cookie'))
                 self.json_response(result, cookie=cookie)
             elif route.path == "/api/status":
-                self.json_response({**self.server.places.status(), "aiConfigured": bool(getattr(self.server, "planner", None) and self.server.planner.key)})
+                self.json_response({
+                    **self.server.places.status(),
+                    "aiConfigured": bool(getattr(getattr(self.server, "planner", None), "key", "")),
+                    "venueResearchConfigured": bool(getattr(getattr(self.server, "venue_research", None), "key", "")),
+                })
             elif route.path == "/api/places/photo":
                 content, mime = self.server.places.photo(parse_qs(route.query).get("name", [""])[0])
                 self.send_response(200)
@@ -362,12 +375,16 @@ class Handler(SimpleHTTPRequestHandler):
             elif self.path in ("/api/plan", "/api/plan/shortlist"):
                 self.json_response(self.server.planner.recommend(data, shortlist=self.path.endswith("/shortlist")))
                 return
+            elif self.path == "/api/places/research":
+                self.json_response(self.server.venue_research.check(data))
+                return
             elif self.path == "/api/places/search":
                 result = self.server.places.search(data.get("name"), data.get("neighborhood", ""),
                                                    include_photos=data.get("includePhotos", False))
             elif self.path == "/api/places/details":
                 result = self.server.places.details(data.get("placeId"), data.get("includeReviews", False),
-                                                    photos_only=data.get("photosOnly", False))
+                                                    photos_only=data.get("photosOnly", False),
+                                                    enrichment_only=data.get("enrichmentOnly", False))
             else:
                 raise PlacesError("Not found.", 404)
             self.json_response({"result": result, "usage": self.server.places.status()})
@@ -395,7 +412,10 @@ def main():
     server.public_origin = origin
     server.api_limiter = RequestLimiter()
     server.accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''), origin)
-    server.planner = Planner(os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"), UsageLog(ROOT / ".local" / "usage.jsonl"))
+    server.planner = Planner(os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", DEFAULT_SEARCH_MODEL),
+                             UsageLog(ROOT / ".local" / "usage.jsonl"))
+    research_key = server.planner.key if os.getenv("VENUE_RESEARCH_ENABLED", "false").lower() == "true" else ""
+    server.venue_research = VenueResearch(research_key, "openai/gpt-4o-mini", server.planner.usage)
     server.places = GooglePlaces(os.getenv("GOOGLE_MAPS_API_KEY", ""),
                                  places_limit,
                                  os.getenv("GOOGLE_PLACES_REVIEWS_ENABLED", "false").lower() == "true",

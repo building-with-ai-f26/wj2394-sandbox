@@ -55,9 +55,9 @@ class UsageLog:
             "codex_token_status": "Exact per-project tokens unavailable from account usage limits",
         }
 
-    def record_ai(self, http_status, duration_ms, model, usage):
+    def record_ai(self, http_status, duration_ms, model, usage, operation="plan"):
         event = {"timestamp": datetime.now(timezone.utc).isoformat(), "provider": "openrouter",
-                 "operation": "plan", "http_status": http_status, "duration_ms": duration_ms,
+                 "operation": operation, "http_status": http_status, "duration_ms": duration_ms,
                  "model": model, "total_tokens": usage.get("total_tokens"),
                  "prompt_tokens": usage.get("prompt_tokens"), "completion_tokens": usage.get("completion_tokens"),
                  "cost_usd": usage.get("cost"), "cost_status": "provider_reported" if usage.get("cost") is not None else "pending_provider_billing"}

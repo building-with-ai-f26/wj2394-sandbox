@@ -14,13 +14,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, quote, urlencode
 from urllib.request import Request, urlopen
 from uuid import UUID
+from venue_research import BOROUGHS, CATEGORY_WORDS, CUISINES, KEYWORD_WORDS, normalized, public_url
 
 COOKIE = 'inner_table_session'
 OAUTH_COOKIE = 'inner_table_google'
 TAGS = {'conversation', 'fun', 'special', 'date', 'group'}
 PROFILE_PHOTO_PREFIX = 'data:image/jpeg;base64,'
 PROFILE_PHOTO_LIMIT = 120_023
-
 
 class AccountError(Exception):
     def __init__(self, message, status=400):
@@ -39,6 +39,43 @@ def profile_photo_bytes(value):
     if len(image) < 20 or not image.startswith(b'\xff\xd8\xff') or not image.endswith(b'\xff\xd9'):
         raise AccountError(message)
     return image
+
+
+def valid_neighborhood(value):
+    return (isinstance(value, str) and 2 <= len(value) <= 80 and normalized(value) not in BOROUGHS
+            and bool(re.fullmatch(r"[\w][\w .’'&-]+", value)))
+
+
+def clean_public_details(details):
+    if not isinstance(details, dict):
+        return {}
+
+    def fact(item, valid):
+        if not isinstance(item, dict) or not isinstance(item.get('value'), str) or not valid(item['value']):
+            return None
+        url = public_url(item.get('url'))
+        return {'value': item['value'], 'url': url} if url else None
+
+    output = {}
+    category = fact(details.get('category'), lambda value: value in CATEGORY_WORDS)
+    if category:
+        output['category'] = category
+    neighborhood = fact(details.get('neighborhood'), valid_neighborhood)
+    if neighborhood:
+        output['neighborhood'] = neighborhood
+    for field, allowed in (('tags', TAGS), ('cuisines', CUISINES), ('keywords', KEYWORD_WORDS)):
+        entries = details.get(field)
+        if isinstance(entries, list):
+            sources = {}
+            for item in entries[:15]:
+                suggestion = fact(item, lambda value: value in allowed)
+                if suggestion:
+                    sources.setdefault(suggestion['value'], suggestion)
+                if len(sources) == 5:
+                    break
+            if sources:
+                output[field] = list(sources.values())
+    return output
 
 
 def clean_places(places):
@@ -87,6 +124,14 @@ def clean_places(places):
                 raise AccountError('Invalid occasion tags.')
             result[field] = list(dict.fromkeys(values))
         result['inferredTags'] = [tag for tag in result['inferredTags'] if tag in result['tags']]
+        overrides = place.get('detailOverrides', [])
+        if not isinstance(overrides, list) or any(field not in ('category','neighborhood','tags') for field in overrides):
+            raise AccountError('Invalid field preferences.')
+        if overrides:
+            result['detailOverrides'] = list(dict.fromkeys(overrides))
+        evidence = clean_public_details(place.get('publicDetails'))
+        if evidence:
+            result['publicDetails'] = evidence
         place_id = place.get('googlePlaceId')
         if place_id is not None:
             if not isinstance(place_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{5,255}', place_id):
@@ -310,7 +355,8 @@ class Accounts:
             raise AccountError('Invalid guide summary.')
         available = {place['url']:place for place in guide['places']}
         places = []
-        google_fields = ('googleAddress', 'googleCategory', 'googleDescription', 'googlePriceRange', 'googleReviews', 'googleReviewTags')
+        google_fields = ('googleAddress', 'googleCategory', 'googleDescription', 'googlePriceRange',
+                         'googleReviewTags', 'googleCuisineTags', 'googleVenueKeywords')
         for candidate in supplied:
             if not isinstance(candidate, dict) or not isinstance(candidate.get('id'), str) or not isinstance(candidate.get('url'), str):
                 raise AccountError('Invalid guide summary.')
@@ -318,6 +364,33 @@ class Accounts:
             if recorded:
                 place = {**recorded, 'id':candidate['id']}
                 place.update({field:candidate[field] for field in google_fields if field in candidate})
+                place.pop('googleReviews', None)
+                saved_details = clean_public_details(recorded.get('publicDetails'))
+                checked_details = clean_public_details(candidate.get('publicDetails'))
+                details = {**checked_details, **saved_details}
+                for field in ('tags', 'cuisines', 'keywords'):
+                    by_label = {}
+                    for item in [*saved_details.get(field, []), *checked_details.get(field, [])]:
+                        by_label.setdefault(item['value'], item)
+                    details[field] = list(by_label.values())[:5]
+                overrides = recorded.get('detailOverrides', [])
+                if place.get('category', 'unknown') == 'unknown' and 'category' not in overrides and 'category' in details:
+                    place['category'] = details['category']['value']
+                if not place.get('neighborhood') and 'neighborhood' not in overrides:
+                    google_neighborhood = candidate.get('googleNeighborhood')
+                    if 'neighborhood' in details:
+                        place['neighborhood'] = details['neighborhood']['value']
+                    elif valid_neighborhood(google_neighborhood):
+                        place['neighborhood'] = google_neighborhood
+                if 'tags' in overrides:
+                    for field in ('googleReviewTags', 'googleVenueKeywords', 'webReviewTags', 'webVenueKeywords'):
+                        place.pop(field, None)
+                else:
+                    tags = [item['value'] for item in details.get('tags', [])]
+                    place['webReviewTags'] = tags
+                    place['tags'] = list(dict.fromkeys([*place.get('tags', []), *tags]))
+                    place['webVenueKeywords'] = [item['value'] for item in details.get('keywords', [])]
+                place['webCuisines'] = [item['value'] for item in details.get('cuisines', [])]
                 places.append(place)
         return {**body, 'places':places}
 

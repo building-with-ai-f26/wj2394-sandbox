@@ -3,12 +3,13 @@ from contextlib import redirect_stderr
 import json
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from server import GooglePlaces, Handler, PlacesError, ThreadingHTTPServer, main
 from accounts import Accounts
+from planner import PlanError
 
 
 class Response:
@@ -84,6 +85,21 @@ class GoogleClientTests(unittest.TestCase):
         with self.assertRaises(PlacesError):
             client.search('Tomiño Taberna Gallega', include_photos='yes')
 
+    def test_import_enrichment_uses_neighborhood_components_without_price_or_reviews(self):
+        client = GooglePlaces('fixture-not-a-real-key', reviews=True)
+        address = [{'types': ['neighborhood'], 'longText': 'Williamsburg'}]
+        with patch('server.urlopen', return_value=Response({'id': 'ChIJDevocion', 'addressComponents': address})) as upstream:
+            data = client.details('ChIJDevocion', enrichment_only=True)
+            fields = upstream.call_args.args[0].get_header('X-goog-fieldmask').split(',')
+        self.assertIn('addressComponents', fields)
+        self.assertIn('primaryType', fields)
+        self.assertNotIn('websiteUri', fields)
+        self.assertNotIn('priceRange', fields)
+        self.assertNotIn('reviews', fields)
+        self.assertEqual(data['addressComponents'], address)
+        with self.assertRaises(PlacesError):
+            client.details('ChIJDevocion', True, enrichment_only=True)
+
     def test_review_opt_in_changes_fields_and_limits_samples(self):
         client = GooglePlaces('fixture-not-a-real-key')
         with self.assertRaises(PlacesError):
@@ -92,7 +108,10 @@ class GoogleClientTests(unittest.TestCase):
             data = GooglePlaces('fixture-not-a-real-key', reviews=True).details('ChIJfixture', True)
             self.assertEqual(len(data['reviews']), 5)
             self.assertEqual(len(data['photos']), 1)
-            self.assertIn('reviews', upstream.call_args.args[0].get_header('X-goog-fieldmask'))
+            fields = upstream.call_args.args[0].get_header('X-goog-fieldmask').split(',')
+            self.assertIn('reviews', fields)
+            self.assertIn('addressComponents', fields)
+            self.assertIn('websiteUri', fields)
 
     def test_invalid_ids_and_photo_urls_are_rejected(self):
         client = GooglePlaces('fixture-not-a-real-key')
@@ -139,6 +158,22 @@ class HTTPTests(unittest.TestCase):
             data = json.load(response)
             self.assertFalse(data['configured'])
             self.assertNotIn('key', data)
+
+    def test_optional_venue_research_status_and_error_use_existing_handler(self):
+        service = Mock(key='fixture-not-a-real-key')
+        service.check.side_effect = PlanError('Research is temporarily unavailable.', 503)
+        data = {'name': 'Mercado Little Spain'}
+        request = Request(self.base + '/api/places/research', data=json.dumps(data).encode(),
+                          headers={'Content-Type': 'application/json'})
+        with patch.object(self.server, 'venue_research', service, create=True):
+            with urlopen(self.base + '/api/status') as response:
+                self.assertTrue(json.load(response)['venueResearchConfigured'])
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request)
+            with caught.exception as response:
+                self.assertEqual(response.code, 503)
+                self.assertEqual(json.load(response)['error'], 'Research is temporarily unavailable.')
+        service.check.assert_called_once_with(data)
 
     def test_profile_photos_are_same_origin_uncached_images(self):
         with patch.object(self.server.accounts,'profile_photo',return_value=b'jpeg fixture') as photo:

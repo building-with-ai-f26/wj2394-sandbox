@@ -12,7 +12,7 @@ services:
       - key: APP_MODE
         value: public
       - key: OPENROUTER_MODEL
-        value: openai/gpt-4o-mini
+        value: openai/gpt-6.2-sol
       - key: GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION
         value: "40"
       - key: GOOGLE_PLACES_REVIEWS_ENABLED

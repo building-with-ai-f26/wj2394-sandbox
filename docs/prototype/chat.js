@@ -8,13 +8,20 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
   const send = document.querySelector('#plan-send');
   const status = document.querySelector('#plan-status');
   function guideSummary() {
+    const friendGuide = Boolean(getOwner());
     return getPlaces().map(place => ({id: String(place.id), url:place.url, name: place.name, category: place.category,
       neighborhood: place.neighborhood, price: place.price, note: place.note, status: place.status,
       ...(place.website ? {publicDescription:place.description} : {}),
+      ...(friendGuide && place.publicDetails ? {publicDetails:place.publicDetails} : {}),
       googleAddress: place._google?.formattedAddress || '', googleCategory: place._google?.primaryTypeDisplayName?.text || '',
       googleDescription: place._google?.editorialSummary?.text || '', googlePriceRange: place._google?.priceRange || null,
-      googleReviews: (place._google?.reviews || []).map(review => review.text?.text || ''),
-      tags: place.tags, googleReviewTags: place.googleReviewTags || []}));
+      googleNeighborhood: place.googleNeighborhood || '',
+      tags: place.tags, googleReviewTags: place.googleReviewTags || [],
+      googleCuisineTags: place.googleCuisineTags || [],
+      googleVenueKeywords: place.googleVenueKeywords || [],
+      webCuisines: (place.webCuisineSources || []).map(tag => tag.value),
+      webVenueKeywords: (place.webKeywordSources || []).map(tag => tag.value),
+      webReviewTags: (place.webReviewTags || []).map(tag => tag.value)}));
   }
   async function request(route, body, context) {
     const owner = getOwner();
@@ -81,8 +88,8 @@ function createPlanChat({getPlaces, preparePlaces, onResults, getOwner = () => n
       transcript.scrollTop = transcript.scrollHeight;
       const coverage = await preparePlaces(candidates.matches.map(match => match.id));
       if(context !== revision)return;
-      const details = guideSummary();
-      const selected = details.filter(place => candidates.matches.some(match => match.id === place.id));
+      const details = new Map(guideSummary().map(place => [place.id, place]));
+      const selected = candidates.matches.map(match => details.get(match.id)).filter(Boolean);
       progress.textContent = 'Finding the best fit from the available details…';
       transcript.scrollTop = transcript.scrollHeight;
       const result = await request('/api/plan', {messages:history, places:selected}, context);

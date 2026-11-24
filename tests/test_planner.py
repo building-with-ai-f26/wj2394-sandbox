@@ -1,6 +1,8 @@
+import io
 import json
 import unittest
 from unittest.mock import patch, Mock
+from urllib.error import HTTPError
 
 from planner import Planner, PlanError
 
@@ -40,6 +42,23 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(usage.record_ai.call_args.args[3]['total_tokens'], 42)
         self.assertNotIn('Downtown', str(usage.record_ai.call_args))
 
+    def test_upstream_rejection_logs_only_status_and_fixed_category(self):
+        for status, category in [(401, "authentication"), (402, "payment_required"),
+                                 (429, "rate_limited"), (503, "provider_unavailable"),
+                                 (502, "upstream_error")]:
+            with self.subTest(status=status):
+                body = io.BytesIO(b'{"message":"fixture private response"}')
+                rejection = HTTPError("https://openrouter.ai/?token=fixture-url", status,
+                                      "fixture upstream message", {}, body)
+                usage = Mock()
+                with patch("planner.urlopen", side_effect=rejection), self.assertLogs("planner", level="WARNING") as logs:
+                    with self.assertRaises(PlanError) as caught:
+                        Planner("fixture-key", usage=usage).recommend(self.data(), shortlist=True)
+                self.assertEqual(logs.output, [f"WARNING:planner:OpenRouter search failed status={status} category={category}"])
+                self.assertEqual(caught.exception.status, 502)
+                self.assertEqual(usage.record_ai.call_args.args[0], status)
+                self.assertTrue(body.closed)
+
     def test_malformed_model_reply_has_safe_error(self):
         response = Mock()
         response.__enter__ = Mock(return_value=response)
@@ -70,6 +89,7 @@ class PlannerTests(unittest.TestCase):
         data = self.data()
         data['places'][0].update({'googleDescription': 'A cafe with a garden.',
                                  'googlePriceRange': {'endPrice': {'units': '25', 'currencyCode': 'USD'}},
+                                 'googleReviewTags': ['conversation'],
                                  'googleReviews': ['Quiet enough for conversation.']})
         response = Mock()
         response.__enter__ = Mock(return_value=response)
@@ -83,8 +103,62 @@ class PlannerTests(unittest.TestCase):
             client.recommend(data)
             ranking = json.loads(upstream.call_args.args[0].data)['messages'][0]['content']
             self.assertIn('A cafe with a garden.', ranking)
-            self.assertIn('Quiet enough for conversation.', ranking)
+            self.assertIn('"reviewHints": ["conversation"]', ranking)
+            self.assertNotIn('Quiet enough for conversation.', ranking)
             self.assertIn('googlePriceRange', ranking)
+
+    def test_japanese_tag_keeps_uncategorized_saved_place_in_final_results(self):
+        data = self.data()
+        data['messages'] = [{'role':'user','content':'Japanese spots?'}]
+        data['places'] = [
+            {'id':'saved','name':'Fixture Dining Room','category':'unknown','tags':['Japanese']},
+            {'id':'types','name':'Fixture Counter','category':'unknown','googleCuisineTags':['japanese']},
+            {'id':'web','name':'Fixture Kitchen','category':'unknown','webCuisines':['japanese']},
+            {'id':'keywords','name':'Fixture Bar','category':'unknown','webVenueKeywords':['yakitori']},
+            {'id':'reviews','name':'Fixture Cafe','category':'unknown','googleReviews':['I had sushi elsewhere.']},
+            {'id':'conflict','name':'Fixture House','tags':['sushi'],'googleCategory':'Korean Restaurant'},
+        ]
+        result = {'reply':'Here are some places.', 'matches':[
+            {'id':place['id'],'reason':'A possible fit.'} for place in data['places']
+        ]}
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+        with patch('planner.urlopen', return_value=response) as upstream:
+            answer = Planner('fixture').recommend(data)
+        self.assertEqual([match['id'] for match in answer['matches']], ['saved', 'types', 'web', 'keywords'])
+        prompt = json.loads(upstream.call_args.args[0].data)['messages'][0]['content']
+        self.assertNotIn('I had sushi elsewhere.', prompt)
+
+    def test_broad_japanese_retrieval_can_recover_a_sourced_candidate(self):
+        data = self.data()
+        data['messages'] = [{'role':'user','content':'Japanese spots?'}]
+        data['places'] = [
+            {'id':'unknown','name':'Fixture Cafe','category':'unknown'},
+            {'id':'sourced','name':'Fixture Kitchen','category':'unknown','webCuisines':['japanese']},
+        ]
+        result = {'reply':'No candidates.', 'matches':[]}
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+        with patch('planner.urlopen', return_value=response) as upstream:
+            planner = Planner('fixture')
+            self.assertEqual([match['id'] for match in planner.recommend(data, shortlist=True)['matches']], ['sourced'])
+            payload = json.loads(upstream.call_args.args[0].data)
+            prompt = payload['messages'][0]['content']
+            self.assertLess(prompt.index('"id": "sourced"'), prompt.index('"id": "unknown"'))
+            self.assertEqual(payload['model'], 'openai/gpt-6.2-sol')
+            self.assertEqual(payload['reasoning']['effort'], 'low')
+            self.assertEqual(payload['response_format']['type'], 'json_schema')
+            self.assertNotIn('temperature', payload)
+            data['messages'][0]['content'] = 'Japanese spots under $15 in Soho?'
+            self.assertEqual(planner.recommend(data, shortlist=True)['matches'], [])
+            data['messages'][0]['content'] = 'Japanese spots?'
+            result['matches'] = [{'id':'unknown','reason':'Details to check.'}]
+            response.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps(result)}}]}).encode()
+            self.assertEqual([match['id'] for match in planner.recommend(data, shortlist=True)['matches']], ['sourced', 'unknown'])
 
     def test_japanese_followup_excludes_korean_substitution(self):
         data = self.data()
