@@ -87,7 +87,7 @@ Set the following values privately in Render environment settings.
 - Separate demo `OPENROUTER_API_KEY` and `GOOGLE_MAPS_API_KEY`
 - `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`
 - `POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST=https://us.i.posthog.com`
-- `OPENROUTER_MODEL=openai/gpt-4o-mini`
+- `OPENROUTER_MODEL=openai/gpt-6.2-sol`
 - `GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION=40`
 - `GOOGLE_PLACES_REVIEWS_ENABLED=true`
 
@@ -105,9 +105,9 @@ Before sharing, verify `/healthz`, a sample conversation, a real-place Google lo
 
 ## AI conversation configuration
 
-Set `OPENROUTER_API_KEY` in your private `.env` and restart `python server.py --port 8001`. Never paste the key into chat or commit it. `OPENROUTER_MODEL` defaults to `openai/gpt-4o-mini` and can be changed locally. Google enrichment uses `GOOGLE_MAPS_API_KEY`, with reviews controlled by `GOOGLE_PLACES_REVIEWS_ENABLED`.
+Set `OPENROUTER_API_KEY` in your private `.env` and restart `python server.py --port 8001`. Never paste the key into chat or commit it. `OPENROUTER_MODEL` defaults to `openai/gpt-6.2-sol` for candidate selection and final ranking. Google enrichment uses `GOOGLE_MAPS_API_KEY`, with reviews controlled by `GOOGLE_PLACES_REVIEWS_ENABLED`. Set `VENUE_RESEARCH_ENABLED=true` to enable paid lookups against public venue sources.
 
-Describe an occasion in The plan and send follow-ups to revise it. Conversation history stays in memory until reset or reload. Each send shares the active guide's names, notes, recorded details, tags and review-derived hints with OpenRouter and its model provider. Each plan retrieves likely saved candidates, fetches their available Google details, and ranks them using descriptions, price ranges and a limited review sample. Photos are excluded from AI requests. AI reasons can be inaccurate and require evaluation. A missing key shows a setup message. Static GitHub Pages cannot run these server features.
+Describe an occasion in The plan and send follow-ups to revise it. Conversation history stays in memory until reset or reload. Each send shares the active guide's names, notes, venue details, tags and review-derived hints with OpenRouter and its model provider. Each plan retrieves likely saved candidates, checks available details, and ranks them using sourced venue evidence. Photos and full review text stay out of AI requests. A missing key shows a setup message. Static GitHub Pages cannot run these server features.
 
 Run `python usage.py` for private project-report request counts, provider-reported AI tokens and costs. The ledger under `.local/` is Git-ignored and excludes conversation and place contents. Missing billing values stay pending. Run `python -m unittest discover -s tests -p 'test_*.py'` for Python checks and `node --test tests/matcher.test.cjs tests/imports.test.cjs tests/google.test.cjs` for JavaScript checks.
 

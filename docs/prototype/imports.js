@@ -1,6 +1,16 @@
 // Import parsing utilities. Network requests are handled by the app and local server.
 (function (root) {
   const TAGS = ['conversation','fun','special','date','group'];
+  const CUISINES = new Set([
+    'american','brazilian','caribbean','chinese','ethiopian','filipino','french','greek','indian','italian',
+    'japanese','korean','lebanese','mediterranean','mexican','middle eastern','moroccan','peruvian',
+    'portuguese','spanish','taiwanese','thai','turkish','vietnamese'
+  ]);
+  const KEYWORDS = new Set([
+    'bakery','brunch','coffee','cocktails','dim sum','izakaya','live music','noodles','omakase','outdoor seating',
+    'pizza','ramen','sake','seafood','small plates','sushi','tacos','tapas','tasting menu','udon','vegan options',
+    'vegetarian options','wine','yakitori'
+  ]);
   function mapsURL(value) {
     try {
       const url = new URL(value.trim());
@@ -90,6 +100,81 @@
   function categoryLabel(category) {
     return ({restaurant:'Restaurant',cafe:'Café',bar:'Bar',shop:'Shop',nightclub:'Nightclub',other:'Other',unknown:'Uncategorized'})[category] || 'Uncategorized';
   }
+  function imported(place) {
+    return ['Google Takeout CSV','Google Maps shared list'].includes(place.source);
+  }
+  function sourceURL(value) {
+    if(typeof value !== 'string' || value.length > 700) return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && url.hostname.includes('.') && !url.port && !url.username && !url.password ? url.href : null;
+    } catch {return null;}
+  }
+  function detailOverrides(value) {
+    return Array.isArray(value) ? ['category','neighborhood','tags'].filter(field=>value.includes(field)) : [];
+  }
+  function cleanPublicDetails(value) {
+    if(!value || typeof value !== 'object') return null;
+    function fact(item, valid) {
+      const url = sourceURL(item?.url);
+      return url && typeof item?.value === 'string' && valid(item.value) ? {value:item.value,url} : null;
+    }
+    const category = fact(value.category,item=>['restaurant','cafe','bar','shop','nightclub','other'].includes(item));
+    const neighborhood = fact(value.neighborhood,item=>item.length >= 2 && item.length <= 80 && /^[\p{L}\p{N}][\p{L}\p{N} .’'&-]+$/u.test(item));
+    const tags = Array.isArray(value.tags) ? TAGS.flatMap(tag=>{
+      const entry = fact(value.tags.find(item=>item?.value===tag),item=>item===tag);
+      return entry ? [entry] : [];
+    }) : [];
+    function sourcedList(items, labels) {
+      const result = [];
+      if(!Array.isArray(items)) return result;
+      for(const item of items) {
+        const entry = fact(item,value=>labels.has(value));
+        if(entry && !result.some(found=>found.value===entry.value)) result.push(entry);
+        if(result.length===5) break;
+      }
+      return result;
+    }
+    const cuisines=sourcedList(value.cuisines,CUISINES), keywords=sourcedList(value.keywords,KEYWORDS);
+    if(!category && !neighborhood && !tags.length && !cuisines.length && !keywords.length) return null;
+    return {...(category && {category}),...(neighborhood && {neighborhood}),tags,
+      ...(cuisines.length && {cuisines}),...(keywords.length && {keywords})};
+  }
+  function combinePublicDetails(recorded, supplement) {
+    if(!recorded || !supplement) return recorded || supplement;
+    return cleanPublicDetails({...supplement,...recorded,
+      tags:[...(recorded.tags || []),...(supplement.tags || [])],
+      cuisines:[...(recorded.cuisines || []),...(supplement.cuisines || [])],
+      keywords:[...(recorded.keywords || []),...(supplement.keywords || [])]
+    });
+  }
+  function mergePublicDetails(place) {
+    const details = place.publicDetails;
+    if(!details) return place;
+    const overrides = detailOverrides(place.detailOverrides);
+    const category = !overrides.includes('category') && place.category==='unknown' ? details.category : null;
+    const neighborhood = !overrides.includes('neighborhood') && !place.neighborhood ? details.neighborhood : null;
+    const suppressTags=overrides.includes('tags');
+    const webTags=suppressTags ? [] : details.tags.filter(tag=>!place.tags.includes(tag.value));
+    const webCuisineSources=details.cuisines || [], webKeywordSources=suppressTags ? [] : details.keywords || [];
+    return {...place,
+      ...(category && {category:category.value,webCategorySource:category.url}),
+      ...(neighborhood && {neighborhood:neighborhood.value,webNeighborhoodSource:neighborhood.url}),
+      tags:[...place.tags,...webTags.map(tag=>tag.value)],
+      webReviewTags:webTags,
+      cuisines:[...new Set([...(place.cuisines || []),...webCuisineSources.map(item=>item.value)])],
+      venueKeywords:[...new Set([...(place.venueKeywords || []),...webKeywordSources.map(item=>item.value)])],
+      webCuisineSources,webKeywordSources,
+    };
+  }
+  function needsEnrichment(place) {
+    const details=mergePublicDetails(place);
+    const overrides=detailOverrides(place.detailOverrides);
+    return (!overrides.includes('category') && details.category==='unknown') ||
+      (!overrides.includes('neighborhood') && !details.neighborhood) ||
+      (!overrides.includes('tags') && !details.tags.length && !details.venueKeywords?.length) ||
+      (['unknown','restaurant','bar'].includes(details.category) && !details.cuisines?.length);
+  }
   function validateBackup(text) {
     if (text.length > 20_000_000) throw new Error('Choose a backup smaller than 20 MB.');
     const data = JSON.parse(text);
@@ -97,9 +182,10 @@
     return data.places.map(p => {
       if (p && ((p.inGuide !== undefined && typeof p.inGuide !== 'boolean') || (p.listName !== undefined && (typeof p.listName !== 'string' || p.listName.length > 200)) || (p.inferredTags !== undefined && (!Array.isArray(p.inferredTags) || !p.inferredTags.every(tag => TAGS.includes(tag)))))) throw new Error('Invalid guide metadata. Nothing was restored.');
       if (!p || typeof p.name !== 'string' || !p.name.trim() || p.name.length > 200 || typeof p.url !== 'string' || p.url.length > 2000 || !mapsURL(p.url) || typeof p.note !== 'string' || p.note.length > 3000 || typeof p.neighborhood !== 'string' || p.neighborhood.length > 100 || !['unknown','restaurant','cafe','bar','shop','nightclub','other'].includes(p.category) || !['been there','want to try','not specified'].includes(p.status) || typeof p.recommended !== 'boolean' || !(p.price === null || (Number.isFinite(p.price) && p.price > 0 && p.price <= 10000)) || !Array.isArray(p.tags) || !p.tags.every(tag => TAGS.includes(tag))) throw new Error('A backup place contains invalid fields. Nothing was restored.');
-      return {id:crypto.randomUUID(),name:p.name.trim(),url:mapsURL(p.url),note:p.note,neighborhood:p.neighborhood.trim(),category:p.category,status:p.status,recommended:p.recommended,inGuide:typeof p.inGuide === 'boolean' ? p.inGuide : p.recommended,price:p.price,tags:[...new Set(p.tags)],inferredTags:(p.inferredTags || []).filter(tag=>p.tags.includes(tag)),listName:p.listName || '',source:['Google Takeout CSV','Google Maps shared list'].includes(p.source) ? p.source : 'Restored personal backup',...(typeof p.googlePlaceId === 'string' && /^[A-Za-z0-9_-]{5,255}$/.test(p.googlePlaceId) ? {googlePlaceId:p.googlePlaceId} : {})};
+      const overrides = detailOverrides(p.detailOverrides), evidence = cleanPublicDetails(p.publicDetails);
+      return {...(overrides.length && {detailOverrides:overrides}),...(evidence && {publicDetails:evidence}),id:crypto.randomUUID(),name:p.name.trim(),url:mapsURL(p.url),note:p.note,neighborhood:p.neighborhood.trim(),category:p.category,status:p.status,recommended:p.recommended,inGuide:typeof p.inGuide === 'boolean' ? p.inGuide : p.recommended,price:p.price,tags:[...new Set(p.tags)],inferredTags:(p.inferredTags || []).filter(tag=>p.tags.includes(tag)),listName:p.listName || '',source:['Google Takeout CSV','Google Maps shared list'].includes(p.source) ? p.source : 'Restored personal backup',...(typeof p.googlePlaceId === 'string' && /^[A-Za-z0-9_-]{5,255}$/.test(p.googlePlaceId) ? {googlePlaceId:p.googlePlaceId} : {})};
     });
   }
-  root.InnerTableImport = {mapsURL,parseCSV,importCSV,ready,visitLabel,categoryLabel,suggestedTags,validateBackup};
+  root.InnerTableImport = {mapsURL,parseCSV,importCSV,ready,visitLabel,categoryLabel,suggestedTags,validateBackup,imported,sourceURL,detailOverrides,cleanPublicDetails,mergePublicDetails,combinePublicDetails,needsEnrichment,CUISINES};
   if (typeof module !== 'undefined') module.exports = root.InnerTableImport;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

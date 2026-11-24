@@ -86,3 +86,22 @@ Every displayed place has a thumbnail slot. Approved readers can browse the frie
 Fixtures checked four owner rows and three approved friend rows, including hidden-place exclusion and revocation. Chrome checked 320, 390 and 1100 pixel layouts. [390-pixel preview with Google checks paused](../docs/assets/build-4-thumbnail-coverage.png)
 
 The local preview is running with its app-level Google cap disabled, as requested. Hosted mode requires its existing cap. Six live Google calls across two checks verified a two-request photo for each of Mercado Little Spain, Tomiño Taberna Gallega and Sake Bar Decibel. Private-guide photo coverage and Google charges have yet to be reconciled. Checkpoints cover approximately 2:17–2:25 p.m. New York time, including tool waits.
+
+
+### Search failure diagnostic, November 24
+
+The hosted shortlist returned a generic 502 after an OpenRouter HTTP rejection. Added a server diagnostic for the upstream status and a fixed error category. Seven planner tests passed, including mocked authentication, payment, rate-limit and provider failures. The diagnostic records only status and the fixed category. Render marked diagnostic revision `38fd057` live and the health check passed.
+
+The approved public sample search returned an OpenRouter 402 at 10:06 a.m. New York time. The builder reported resolving the payment issue. One approved repeat at 10:17 a.m. returned HTTP 200 and shortlisted Sake Bar Decibel. Both requests exercised the public shortlist endpoint. The signed-in friend-guide flow was outside those live checks.
+
+Observed checkpoints cover approximately 9:55–9:56 a.m. New York time, including tool waits.
+
+### Shortlist retrieval and automatic venue details, November 24
+
+An offline fixture reproduced a Japanese-tagged, uncategorized entry being selected for lookup and then removed by the final filter. The shortlist now prioritizes saved and sourced cuisine evidence, checks uncategorized candidates, and uses the same evidence in final ranking. The regression also tests a Korean-only result and a more specific Japanese request with a strict budget. The local default and Render configuration now select GPT‑6.2 Sol for both stages. This change has only been verified with mocked provider responses.
+
+Automatic enrichment covers older saved places, new imports, and visible places in the approved friend guide currently selected. Confirmed imports enter the lookup queue immediately and older saves remain eligible for checks beyond the visible rows. Owner guides remember a queue position in the browser so a later session can continue with available provider capacity. Confirmed Google venue types and sourced public venue facts add category, neighborhood, cuisine and search keywords where evidence is available. Google review text stays in the browser and only labeled keyword hints reach ranking. Existing manual edits take precedence. Verified public facts are saved for the owner, while friend supplements are in memory for the active guide. Paid public web checks are disabled by default pending approval. Automated Yelp extraction was excluded under Yelp’s terms.
+
+The release branch passed 84 JavaScript and 55 Python tests without provider charges. Checks covered both stages of friend-guide chat, source evidence, hidden-row exclusion, manual overrides, and the first confirmed list import. Signed-in guide coverage and comparative model quality await live testing.
+
+Observed verification checkpoints cover approximately 10:26–10:43 a.m. New York time, including tool waits. This is elapsed time. Builder hours await reconciliation.

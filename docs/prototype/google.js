@@ -18,11 +18,42 @@
     const negatives={conversation:/not (?:very |too )?quiet|\bloud\b|(?:can't|cannot) (?:hear|talk)/i,fun:/not (?:very )?(?:fun|lively|festive)/i,special:/not special/i,date:/not romantic|not (?:a )?date/i,group:/not (?:for )?(?:a )?group/i};
     return hints.filter(tag=>!texts.some(text=>negatives[tag].test(text)));
   }
+  function neighborhoodFromGoogle(data) {
+    const neighborhoods=new Set((data.addressComponents || [])
+      .filter(component=>component.types?.includes('neighborhood') && typeof component.longText==='string')
+      .map(component=>component.longText.trim()).filter(Boolean));
+    return neighborhoods.size===1 ? neighborhoods.values().next().value : '';
+  }
+  function googleCuisines(data) {
+    const types=[data.primaryType,...(data.types || [])];
+    const cuisines=new Set(types.filter(type=>typeof type==='string' && type.endsWith('_restaurant'))
+      .map(type=>type==='korean_barbecue_restaurant' ? 'korean' : type.slice(0,-11).replaceAll('_',' '))
+      .filter(cuisine=>imports.CUISINES.has(cuisine)));
+    // A dish-specific type disambiguates generic restaurants but does not replace an explicitly named cuisine.
+    if(!cuisines.size && types.some(type=>type==='sushi_restaurant' || type==='ramen_restaurant')) cuisines.add('japanese');
+    return [...cuisines];
+  }
+  function googleKeywords(data) {
+    const keywords={bakery:'bakery',brunch_restaurant:'brunch',coffee_shop:'coffee',cocktail_bar:'cocktails',
+      ramen_restaurant:'ramen',seafood_restaurant:'seafood',sushi_restaurant:'sushi',pizza_restaurant:'pizza',
+      wine_bar:'wine',vegan_restaurant:'vegan options',vegetarian_restaurant:'vegetarian options'};
+    return [...new Set([data.primaryType,...(data.types || [])].filter(type=>Object.hasOwn(keywords,type))
+      .map(type=>keywords[type]))];
+  }
   function mergePlace(place,data) {
     if(!data) return place;
-    const hints=reviewTags(data).filter(tag=>!place.tags.includes(tag));
-    return {...place,category:place.category==='unknown'?categoryFromGoogle(data):place.category,
-      googleCategoryUsed:place.category==='unknown',googleReviewTags:hints,tags:[...place.tags,...hints],_google:data};
+    const overrides=place.detailOverrides || [];
+    const category=place.category==='unknown' && !overrides.includes('category')
+      ? categoryFromGoogle(data) : place.category;
+    const neighborhood=!place.neighborhood && !overrides.includes('neighborhood') ? neighborhoodFromGoogle(data) : '';
+    const suppressTags=overrides.includes('tags');
+    const hints=suppressTags ? [] : reviewTags(data).filter(tag=>!place.tags.includes(tag));
+    const googleCuisineTags=googleCuisines(data);
+    const venueKeywords=suppressTags ? [] : googleKeywords(data);
+    return {...place,category,neighborhood:neighborhood || place.neighborhood,
+      googleCategoryUsed:category!==place.category,googleNeighborhoodUsed:Boolean(neighborhood),googleNeighborhood:neighborhood,
+      googleReviewTags:hints,googleCuisineTags,cuisines:googleCuisineTags,googleVenueKeywords:venueKeywords,venueKeywords,
+      tags:[...place.tags,...hints],_google:data};
   }
   function placeIdFromURL(value) {
     if(!imports.mapsURL(value)) return null;
@@ -53,11 +84,13 @@
     const exact=candidates.filter(candidate=>normalize(candidate.displayName?.text || '')===normalize(name) && /New York|\bNY\b|Brooklyn|Queens|Bronx|Staten Island/i.test(candidate.formattedAddress || ''));
     return exact.length===1?exact[0]:null;
   }
-  function createController({getPlaces,onUpdate,onLink}) {
+  function createController({getPlaces,onUpdate,onLink,onEnrichmentChecked = () => {}}) {
     const data=new Map(),photos=new Map(),detailsInFlight=new Map(),photoResults=new Map();
     const manualPhotos=new Map(),shortlistPhotos=new Map(),savedPhotos=new Map();
+    const importedDetails=new Map(),enrichmentResults=new Map();
+    let enrichingId=null;
     const photoQueues=[manualPhotos,shortlistPhotos,savedPhotos];
-    let configured=false,reviewsEnabled=false,draining=false,planning=0;
+    let configured=false,reviewsEnabled=false,researchConfigured=false,draining=false,planning=0;
     let remaining=0,shortlistReserve=0,checkingId=null,limited=false,statusRequest=null;
     const $=selector=>document.querySelector(selector);
     const node=(tag,cls='',text='')=>{const item=document.createElement(tag);item.className=cls;item.textContent=text;return item;};
@@ -72,7 +105,7 @@
     }
     function canSpend(cost,background) {return cost===0 || remaining-cost >= (background ? shortlistReserve : 0);}
     function pausedError() {
-      return Object.assign(new Error('Google Maps photo checks are paused at the request limit.'),{paused:true});
+      return Object.assign(new Error('Google Maps checks are paused at the request limit.'),{paused:true});
     }
     function charge(background) {
       if(!canSpend(1,background)) throw pausedError();
@@ -107,7 +140,7 @@
       candidates.forEach(candidate=>{
         const row=node('div','google-candidate');row.append(node('strong','',candidate.displayName?.text || 'Unnamed place'),node('p','small',candidate.formattedAddress || 'Address not supplied'),link('View on Google Maps',candidate.googleMapsUri));
         (candidate.attributions || []).forEach(a=>row.append(link(a.provider || 'Data provider',a.providerUri)));
-        const select=node('button','primary','Use this place');select.type='button';select.onclick=()=>{dialog.close();refreshPlace(place,{confirmedId:candidate.id});};row.append(select);list.append(row);
+        const select=node('button','primary','Use this place');select.type='button';select.onclick=()=>{dialog.close();return refreshPlace(place,{confirmedId:candidate.id});};row.append(select);list.append(row);
       });
       dialog.showModal();
     }
@@ -126,7 +159,7 @@
       if(entry.photoSource && Date.now() - entry.fetchedAt >= 60_000) entry.photoSource=undefined;
       return entry.photoSource!==undefined;
     }
-    async function findDetails(place,{interactive=false,rematch=false,confirmedId,background=false,reviews=false,photo=false}={}) {
+    async function findDetails(place,{interactive=false,rematch=false,confirmedId,background=false,reviews=false,photo=false,enrichment=false}={}) {
       if(!active(place)) return null;
       let id=confirmedId || (!rematch && knownId(place));
       let photoMatch;
@@ -137,31 +170,41 @@
         if(!active(place)) return null;
         const candidates=result.places || [];
         const exact=automaticMatch(place.name,candidates,place.url);
-        if(!exact) {
-          if(interactive) choose(place,candidates);
+        if(interactive && (rematch || !exact)) {
+          choose(place,candidates);
           return null;
         }
+        if(!exact) return null;
         id=exact.id;
         if(photo) photoMatch=exact;
       }
-      const includeReviews=!photo && wantsReviews({reviews});
-      const fields=photo ? {placeId:id,photosOnly:true} : {placeId:id,includeReviews};
+      const includeReviews=!photo && !enrichment && wantsReviews({reviews});
+      const fields={placeId:id};
+      if(photo) fields.photosOnly=true;
+      else if(enrichment) fields.enrichmentOnly=true;
+      else fields.includeReviews=includeReviews;
       const {photos:photoSources,...found}=photoMatch || await request('details',fields,background);
       if(!active(place)) return null;
       const previous=data.get(place.id);
       const samePlace=previous?.details.id===found.id;
       if(!samePlace) clearPhoto(place.id);
-      const details=photo && samePlace ? {...previous.details,...found} : found;
+      const lightweight=photo || enrichment;
+      const details=lightweight && samePlace ? {...previous.details,...found} : found;
       const photoSource=photoSources?.[0]?.name ? photoSources[0] : null;
-      const entry={details,photoSource,fetchedAt:Date.now(),full:!photo || (samePlace && previous.full),
-        reviewed:includeReviews || (photo && samePlace && previous.reviewed)};
+      const entry={details,photoSource,fetchedAt:Date.now(),enriched:!photo || (samePlace && previous.enriched),
+        full:!lightweight || (samePlace && previous.full),
+        reviewed:includeReviews || (lightweight && samePlace && previous.reviewed)};
       data.set(place.id,entry);
       onLink(place,id);
       return entry;
     }
     function getDetails(place,options={}) {
       const force=options.force || options.interactive;
-      const covers=entry=>options.photo ? freshSource(entry) : entry?.full && (!wantsReviews(options) || entry.reviewed);
+      function covers(entry) {
+        if(options.photo) return freshSource(entry);
+        if(options.enrichment) return entry?.enriched;
+        return entry?.full && (!wantsReviews(options) || entry.reviewed);
+      }
       const running=detailsInFlight.get(place.id);
       if(running) return running.then(entry=>entry && (force || !covers(entry)) ? getDetails(place,options) : entry);
       const cached=data.get(place.id);
@@ -226,7 +269,7 @@
           photoResults.delete(place.id);
           manualPhotos.set(place.id,place);
           onUpdate();
-          await drainPhotos();
+          await drainLookups();
         }
       } catch(error) {say(error.message);}
     }
@@ -245,12 +288,46 @@
       }
       return null;
     }
-    async function drainPhotos() {
+    function nextEnrichment() {
+      for(const place of importedDetails.values()) {
+        if(!active(place) || data.get(place.id)?.enriched) importedDetails.delete(place.id);
+        else if(canSpend(detailsCost(place),true)) return place;
+      }
+      return null;
+    }
+    async function enrichImport(place) {
+      enrichingId=place.id;
+      onUpdate();
+      let result;
+      try {
+        const entry=await getDetails(place,{enrichment:true,background:true});
+        result=entry ? 'completed' : 'no-match';
+      } catch(error) {
+        if(!error.paused) result='retryable';
+        say(error.message);
+      }
+      if(result && active(place) && importedDetails.get(place.id)?.url===place.url) {
+        enrichmentResults.set(place.id,result);
+        importedDetails.delete(place.id);
+        onEnrichmentChecked(place);
+      }
+      enrichingId=null;
+      onUpdate();
+    }
+    async function drainLookups() {
       if(!configured || draining || planning) return;
       draining=true;
       try {
-        let task;
-        while(!planning && (task=nextPhoto())) {
+        while(!planning) {
+          const task=nextPhoto();
+          if(!task) {
+            const place=nextEnrichment();
+            if(place) {
+              await enrichImport(place);
+              continue;
+            }
+            break;
+          }
           const {place,background}=task;
           checkingId=place.id;
           onUpdate();
@@ -270,16 +347,32 @@
         }
       } finally {draining=false;}
     }
-    function setPhotoQueue(queue,places) {
-      const tasks=places.filter(place=>!photos.has(place.id) && !photoResults.has(place.id));
+    function replaceQueue(queue,places) {
       const previous=[...queue.values()];
-      if(tasks.length!==previous.length || tasks.some((place,index)=>
+      if(places.length!==previous.length || places.some((place,index)=>
         place.id!==previous[index].id || place.url!==previous[index].url)) {
         queue.clear();
-        for(const place of tasks) queue.set(place.id,place);
+        for(const place of places) queue.set(place.id,place);
         onUpdate();
       }
-      return drainPhotos();
+      return drainLookups();
+    }
+    function setPhotoQueue(queue,places) {
+      return replaceQueue(queue,places.filter(place=>!photos.has(place.id) && !photoResults.has(place.id)));
+    }
+    function ensureGuideDetails(places) {
+      const tasks=places.filter(place=>!data.get(place.id)?.enriched && !enrichmentResults.has(place.id));
+      return replaceQueue(importedDetails,configured && $('#google-auto-import').checked ? tasks : []);
+    }
+    function ensureImportedDetails(places) {
+      return ensureGuideDetails(places.filter(imports.imported));
+    }
+    function enrichmentState(place) {
+      if(data.get(place.id)?.enriched) return 'completed';
+      if(enrichingId===place.id) return 'checking';
+      if(enrichmentResults.has(place.id)) return enrichmentResults.get(place.id);
+      if(!importedDetails.has(place.id)) return 'idle';
+      return canSpend(detailsCost(place),true) ? 'queued' : 'paused';
     }
     function ensureSavedPhotos(places) {
       return setPhotoQueue(savedPhotos,configured && $('#google-auto-import').checked ? places : []);
@@ -297,7 +390,7 @@
         photoResults.delete(place.id);
         manualPhotos.set(place.id,place);
         onUpdate();
-        await drainPhotos();
+        await drainLookups();
       } catch(error) {
         if(active(place)) {
           photoResults.set(place.id,'retryable');
@@ -348,7 +441,7 @@
         error=failure.message;
       } finally {
         planning--;
-        drainPhotos();
+        drainLookups();
       }
       return {checked,requested:targets.length,error};
     }
@@ -382,7 +475,7 @@
     }
     function extras(place) {
       const entry=data.get(place.id);
-      if(!entry?.full) return null;
+      if(!entry?.enriched) return null;
       const details=entry.details;
       const section=node('section','google-details');
       const brand=node('p','google-brand','Google Maps');brand.setAttribute('translate','no');
@@ -390,6 +483,7 @@
       section.append(brand,node('p','small',`Category from Google: ${details.primaryTypeDisplayName?.text || details.primaryType || 'Not supplied'}`));
       (details.attributions || []).forEach(a=>section.append(link(a.provider || 'Data provider',a.providerUri)));
       if(details.formattedAddress)section.append(node('p','small',details.formattedAddress));
+      if(!entry.full) return section;
       if(details.editorialSummary?.text)section.append(node('p','small',details.editorialSummary.text));
       const range=details.priceRange;
       if(range?.startPrice || range?.endPrice) {
@@ -424,6 +518,7 @@
           const status=await response.json();
           configured=status.configured;
           reviewsEnabled=status.reviewsEnabled;
+          researchConfigured=status.venueResearchConfigured===true;
           remaining=configured ? placesBudget(status) : 0;
           limited=false;
           shortlistReserve=Number.isFinite(status.requestLimit) ? Math.ceil(status.requestLimit/2) : 0;
@@ -442,9 +537,10 @@
     }
     return {
       start,action,extras,photoCredit,placeURL,prepareForPlan,ensureSavedPhotos,checkShortlistPhotos,
+      ensureImportedDetails,ensureGuideDetails,enrichmentState,researchAvailable:()=>researchConfigured,
       merge:place=>{
         const entry=data.get(place.id);
-        return entry?.full ? mergePlace(place,entry.details) : place;
+        return entry?.enriched ? mergePlace(place,entry.details) : place;
       },
       photo:place=>photos.get(place.id)?.url,
       photoState,photoStatus,retryPhoto,
@@ -460,11 +556,13 @@
         data.delete(id);
         dequeuePhoto(id);
         photoResults.delete(id);
+        importedDetails.delete(id);
+        enrichmentResults.delete(id);
         detailsInFlight.delete(id);
         clearPhoto(id);
       }
     };
   }
-  root.GooglePlaces={categoryFromGoogle,reviewTags,mergePlace,placeIdFromURL,safeURL,automaticMatch,mapsFeatureId,createController};
+  root.GooglePlaces={categoryFromGoogle,neighborhoodFromGoogle,reviewTags,mergePlace,placeIdFromURL,safeURL,automaticMatch,mapsFeatureId,createController};
   if(typeof module!=='undefined')module.exports=root.GooglePlaces;
 })(typeof globalThis!=='undefined'?globalThis:window);

@@ -46,10 +46,82 @@ test('enrichment fills an unknown category and adds sourced hints without mutati
   assert.equal(match.length,1);assert.match(match[0].reasons[0],/Google review sample/);
   assert.equal(mergePlace({...personal,category:'bar'},google).category,'bar');
 });
+test('an explicit neighborhood is attributed and cannot override saved or cleared fields',()=>{
+  const place={...personal,name:'Devoción Williamsburg'};
+  const detail={primaryType:'coffee_shop',addressComponents:[
+    {types:['sublocality_level_1','political'],longText:'Brooklyn'},
+    {types:['neighborhood','political'],longText:'Williamsburg'}
+  ]};
+  const computed=mergePlace(place,detail);
+  assert.equal(computed.category,'cafe');
+  assert.equal(computed.neighborhood,'Williamsburg');
+  assert.equal(computed.googleNeighborhoodUsed,true);
+  assert.equal(place.neighborhood,'');
+  const manuallyCleared=mergePlace({...place,detailOverrides:['category','neighborhood']},detail);
+  assert.equal(manuallyCleared.category,'unknown');
+  assert.equal(manuallyCleared.neighborhood,'');
+  assert.equal(manuallyCleared.googleCategoryUsed,false);
+  assert.equal(manuallyCleared.googleNeighborhoodUsed,false);
+  const saved=mergePlace({...place,category:'shop',neighborhood:'Brooklyn'},detail);
+  assert.equal(saved.category,'shop');
+  assert.equal(saved.neighborhood,'Brooklyn');
+  assert.equal(saved.googleCategoryUsed,false);
+  assert.equal(saved.googleNeighborhoodUsed,false);
+});
+
+test('boroughs, missing components and conflicting neighborhoods stay unknown',()=>{
+  const place={...personal,name:'Devoción Williamsburg'};
+  const borough={types:['sublocality_level_1','political'],longText:'Brooklyn'};
+  const first={types:['neighborhood'],longText:'Williamsburg'};
+  const second={types:['neighborhood'],longText:'Greenpoint'};
+  for(const addressComponents of [undefined,[borough],[borough,first,second]]) {
+    const result=mergePlace(place,{primaryType:'park',addressComponents});
+    assert.equal(result.neighborhood,'');
+    assert.equal(result.googleNeighborhoodUsed,false);
+    assert.equal(result.googleCategoryUsed,false);
+  }
+});
+
+test('confirmed Google types yield explicit cuisine and venue keywords with no review inference',()=>{
+  const data={primaryType:'japanese_restaurant',types:['restaurant','sushi_restaurant'],
+    addressComponents:[{types:['neighborhood'],longText:'East Village'}],
+    reviews:[{text:{text:'Quiet and a good place for a date.'}}]};
+  const place={...personal,name:'Sake Bar Decibel'};
+  const result=mergePlace(place,data);
+  assert.deepEqual(result.googleCuisineTags,['japanese']);
+  assert.deepEqual(result.venueKeywords,['sushi']);
+  assert.equal(result.googleNeighborhood,'East Village');
+  const manual=mergePlace({...place,detailOverrides:['neighborhood','tags']},data);
+  assert.equal(manual.googleNeighborhood,'');
+  assert.deepEqual(manual.googleCuisineTags,['japanese']);
+  assert.deepEqual(manual.venueKeywords,[]);
+  assert.deepEqual(mergePlace(place,{primaryType:'restaurant',reviews:[{text:{text:'Italian food'}}]}).googleCuisineTags,[]);
+});
+
+test('sushi and ramen types specify Japanese cuisine on a generic venue without overriding Korean evidence',()=>{
+  const place={...personal,name:'Sake Bar Decibel'};
+  for(const type of ['sushi_restaurant','ramen_restaurant']) {
+    const japanese=mergePlace(place,{primaryType:'restaurant',types:['food',type]});
+    assert.deepEqual(japanese.googleCuisineTags,['japanese']);
+    for(const koreanType of ['korean_restaurant','korean_barbecue_restaurant']) {
+      const korean=mergePlace(place,{primaryType:koreanType,types:[type]});
+      assert.deepEqual(korean.googleCuisineTags,['korean']);
+    }
+  }
+});
+
 test('review hints do not turn conflicting or negated reviews into positive claims',()=>{
   assert.deepEqual(reviewTags({reviews:[{text:{text:'quiet and fun'}},{text:{text:'loud and not fun'}}]}),[]);
   assert.deepEqual(reviewTags({}),[]);
 });
+test('an explicit tag override prevents Google review suggestions from being added',()=>{
+  const place={...personal,tags:['group'],detailOverrides:['tags']};
+  const computed=mergePlace(place,google);
+  assert.deepEqual(computed.tags,['group']);
+  assert.deepEqual(computed.googleReviewTags,[]);
+  assert.equal(computed.category,'cafe');
+});
+
 test('persistent backups retain only a Google ID, stripping transient content and preserving notes',()=>{
   const merged={...mergePlace(personal,google),googlePlaceId:google.id};
   // App exports the personal record, never the merged rendering object.
@@ -89,17 +161,20 @@ const publicVenues = [
   ['mercado','Mercado Little Spain','https://www.google.com/maps/place/Mercado+Little+Spain'],
   ['tomino','Tomiño Taberna Gallega','https://www.google.com/maps/place/Tomino+Taberna+Gallega']
 ].map(([id,name,url],index)=>({
-  id,name,url,googlePlaceId:'ChIJfixture'+index,neighborhood:'',source:'Google Takeout CSV'
+  id,name,url,googlePlaceId:'ChIJfixture'+index,category:'unknown',neighborhood:'',tags:[],source:'Google Takeout CSV'
 }));
 
 function controllerFixture(places, {
   limit=40, photoStatus=200, detailsStatus=200, photoStatuses=[], usageAfterRetry=0,
-  reviewsEnabled=false, deferredDetails=null, searchCandidates=[]
+  reviewsEnabled=false, venueResearchConfigured=false, deferredDetails=null, searchCandidates=[], venueDetails={}
 }={}) {
   const nodes=new Map(), calls=[], linked=[];
   const domNode=tag=>({
     tag,children:[],attributes:{},
     append(...children) {this.children.push(...children);},
+    replaceChildren(...children) {this.children=children;},
+    showModal() {this.open=true;},
+    close() {this.open=false;},
     setAttribute(name,value) {this.attributes[name]=value;}
   });
   const callsFor=route=>calls.filter(call=>call.route===route);
@@ -107,7 +182,7 @@ function controllerFixture(places, {
   const fetch=async (route,options)=>{
     if(route==='/api/status') {
       const requestsUsed=statusCalls++ ? usageAfterRetry : 0;
-      return {ok:true,json:async()=>({configured:true,reviewsEnabled,requestLimit:limit,requestsUsed})};
+      return {ok:true,json:async()=>({configured:true,reviewsEnabled,venueResearchConfigured,requestLimit:limit,requestsUsed})};
     }
     if(route.startsWith('/api/places/photo?')) {
       const source=new URL(route,'https://example.test').searchParams.get('name');
@@ -121,17 +196,18 @@ function controllerFixture(places, {
       calls.push({route:'search',...body});
       return {ok:true,json:async()=>({result:{places:searchCandidates}})};
     }
-    const {placeId:id,includeReviews,photosOnly}=JSON.parse(options.body);
-    const place=places.find(item=>item.googlePlaceId===id);
+    const {placeId:id,includeReviews,photosOnly,enrichmentOnly}=JSON.parse(options.body);
+    const candidate=searchCandidates.find(item=>item.id===id);
+    const place=places.find(item=>item.googlePlaceId===id) || candidate;
     assert.ok(place, 'lookup should use a confirmed public venue identity');
-    calls.push({route:'details',id,includeReviews,photosOnly});
+    calls.push({route:'details',id,includeReviews,photosOnly,enrichmentOnly});
     const version=callsFor('details').filter(call=>call.id===id).length;
     if(deferredDetails && version===1) await deferredDetails(id);
     if(detailsStatus!==200) return {ok:false,status:detailsStatus};
     const author={displayName:'Fixture contributor',uri:'https://www.google.com/maps/contrib/123'};
     return {ok:true,json:async()=>({
       usage:{requestLimit:limit,requestsUsed:calls.length},
-      result:{id,...(photosOnly ? {} : {googleMapsUri:place.url}),photos:[{name:`places/${id}/photos/ref-${version}`,authorAttributions:[author]}]}
+      result:{id,...(photosOnly ? {} : {googleMapsUri:place.googleMapsUri || place.url,...venueDetails[id],...(enrichmentOnly ? {websiteUri:undefined} : {})}),photos:[{name:`places/${id}/photos/ref-${version}`,authorAttributions:[author]}]}
     })};
   };
   const context=vm.createContext({URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch,
@@ -148,7 +224,7 @@ function controllerFixture(places, {
   const controller=context.GooglePlaces.createController({
     getPlaces:()=>active,onLink:(place,id)=>linked.push([place,id]),onUpdate(){updates++;}
   });
-  return {controller,calls,callsFor,linked,getStatusCalls:()=>statusCalls,getUpdates:()=>updates,setActive:places=>{active=places;}};
+  return {controller,calls,callsFor,linked,nodes,getStatusCalls:()=>statusCalls,getUpdates:()=>updates,setActive:places=>{active=places;}};
 }
 
 test('the visible photo queue checks beyond the first five places when allowance is available',async()=>{
@@ -365,4 +441,123 @@ test('exact name fallback accepts an accent variant while rejecting ambiguity',(
   const invalidEscape='https://www.google.com/maps/place/Tomino%ZZ';
   assert.equal(automaticMatch('Tomino Taberna Gallega',[tomino],invalidEscape),tomino);
   assert.equal(automaticMatch('Tomino Taberna Gallega',[tomino,{...tomino,id:'ChIJBranch'}]),null);
+});
+
+
+test('web research is available only when the server advertises it',async()=>{
+  const {controller}=controllerFixture(publicVenues,{venueResearchConfigured:true});
+  assert.equal(controller.researchAvailable(),false);
+  await controller.start();
+  assert.equal(controller.researchAvailable(),true);
+  const unconfigured=controllerFixture(publicVenues).controller;
+  await unconfigured.start();
+  assert.equal(unconfigured.researchAvailable(),false);
+});
+
+test('automatic import enrichment is transient and keeps full planner details available',async()=>{
+  const devocion=publicVenues.find(place=>place.id==='devocion');
+  const personal={...publicVenues.at(-1),source:'Personal entry'};
+  const details={primaryType:'coffee_shop',formattedAddress:'148 Grand St, Brooklyn, NY',
+    websiteUri:'https://www.devocion.com/pages/new-york-coffee-shop-williamsburg-brooklyn',
+    addressComponents:[{types:['neighborhood'],longText:'Williamsburg'}]};
+  const {controller,callsFor,linked}=controllerFixture([devocion,personal],{
+    reviewsEnabled:true,venueDetails:{[devocion.googlePlaceId]:details}
+  });
+  await controller.start();
+  await controller.ensureImportedDetails([devocion,personal]);
+  assert.equal(controller.enrichmentState(devocion),'completed');
+  assert.equal(controller.enrichmentState(personal),'idle');
+  assert.equal(controller.merge(devocion).neighborhood,'Williamsburg');
+  assert.equal(controller.merge(devocion)._google.formattedAddress,details.formattedAddress);
+  assert.equal(controller.merge(devocion)._google.websiteUri,undefined);
+  assert.equal(devocion.category,'unknown');
+  assert.equal(devocion.neighborhood,'');
+  assert.equal(callsFor('photo').length,0);
+  assert.deepEqual(linked.map(([,id])=>id),[devocion.googlePlaceId]);
+  await controller.prepareForPlan([devocion.id]);
+  assert.equal(controller.merge(devocion)._google.websiteUri,details.websiteUri);
+  const detailsCalls=callsFor('details');
+  assert.deepEqual(detailsCalls.map(call=>Boolean(call.enrichmentOnly)),[true,false]);
+  assert.deepEqual(detailsCalls.map(call=>Boolean(call.includeReviews)),[false,true]);
+});
+
+test('an ambiguous imported branch reports no match without linking',async()=>{
+  const place={...publicVenues.find(place=>place.id==='devocion'),name:'Devoción',googlePlaceId:undefined};
+  const first={id:'ChIJDevocionBrooklyn',displayName:{text:place.name},formattedAddress:'Brooklyn, NY'};
+  const second={id:'ChIJDevocionManhattan',displayName:{text:place.name},formattedAddress:'New York, NY'};
+  const {controller,callsFor,linked}=controllerFixture([place],{searchCandidates:[first,second]});
+  await controller.start();
+  await controller.ensureImportedDetails([place]);
+  await controller.ensureImportedDetails([place]);
+  assert.equal(controller.enrichmentState(place),'no-match');
+  assert.equal(callsFor('search').length,1);
+  assert.equal(callsFor('details').length,0);
+  assert.equal(linked.length,0);
+});
+
+test('new shortlist photos run ahead of the next import enrichment job',async()=>{
+  const [first,second,shortlisted]=publicVenues;
+  let release;
+  const firstDetails=new Promise(resolve=>{release=resolve;});
+  const {controller,calls}=controllerFixture(publicVenues,{
+    deferredDetails:id=>id===first.googlePlaceId ? firstDetails : null
+  });
+  await controller.start();
+  const work=controller.ensureImportedDetails([first,second]);
+  assert.equal(controller.enrichmentState(first),'checking');
+  assert.equal(controller.enrichmentState(second),'queued');
+  controller.checkShortlistPhotos([shortlisted.id]);
+  release();
+  await work;
+  assert.deepEqual(calls.map(call=>[call.route,call.id]),[
+    ['details',first.googlePlaceId],['details',shortlisted.googlePlaceId],
+    ['photo',shortlisted.googlePlaceId],['details',second.googlePlaceId]
+  ]);
+});
+
+test('automatic enrichment preserves the remaining shortlist reserve',async()=>{
+  const [first,second,third]=publicVenues;
+  const {controller,callsFor}=controllerFixture(publicVenues,{limit:4});
+  await controller.start();
+  await controller.ensureImportedDetails([first,second,third]);
+  assert.equal(controller.enrichmentState(first),'completed');
+  assert.equal(controller.enrichmentState(second),'completed');
+  assert.equal(controller.enrichmentState(third),'paused');
+  assert.equal(callsFor('details').length,2);
+});
+
+
+test('manual rematch offers candidates and applies the selected branch without removing an override',async()=>{
+  const place={...publicVenues.find(item=>item.id==='devocion'),name:'Devoción',category:'shop',
+    detailOverrides:['category']};
+  const brooklyn={id:place.googlePlaceId,displayName:{text:'Devoción'},formattedAddress:'Brooklyn, NY',
+    googleMapsUri:'https://www.google.com/maps/search/?query_place_id='+place.googlePlaceId};
+  const manhattan={id:'ChIJDevocionManhattan',displayName:{text:'Devoción Flatiron'},formattedAddress:'New York, NY',
+    googleMapsUri:'https://www.google.com/maps/search/?query_place_id=ChIJDevocionManhattan'};
+  const lookup=controllerFixture([place],{searchCandidates:[brooklyn,manhattan],venueDetails:{
+    [brooklyn.id]:{primaryType:'coffee_shop',addressComponents:[{types:['neighborhood'],longText:'Williamsburg'}]},
+    [manhattan.id]:{primaryType:'coffee_shop',addressComponents:[{types:['neighborhood'],longText:'Flatiron District'}]}
+  }});
+  await lookup.controller.start();
+  await lookup.controller.ensureImportedDetails([place]);
+  assert.equal(lookup.controller.merge(place).neighborhood,'Williamsburg');
+  await lookup.controller.rematch(place);
+  assert.equal(lookup.nodes.get('#google-match').open,true);
+  const otherBranch=lookup.nodes.get('#google-candidates').children[1].children.at(-1);
+  await otherBranch.onclick();
+  assert.equal(lookup.controller.merge(place).neighborhood,'Flatiron District');
+  assert.equal(lookup.controller.merge(place).category,'shop');
+  assert.equal(lookup.controller.merge(place).googleCategoryUsed,false);
+  assert.equal(lookup.controller.placeURL(place),manhattan.googleMapsUri);
+  assert.equal(lookup.linked.at(-1)[1],manhattan.id);
+});
+
+test('selected guide enrichment includes legacy and approved visible saves supplied by the app',async()=>{
+  const rows=publicVenues.slice(-2).map((place,index)=>({...place,source:index ? 'Personal entry' : 'Restored personal backup'}));
+  const {controller,callsFor}=controllerFixture(rows);
+  await controller.start();
+  await controller.ensureGuideDetails(rows);
+  assert.deepEqual(callsFor('details').map(item=>item.id),rows.map(place=>place.googlePlaceId));
+  assert.equal(callsFor('photo').length,0);
+  for(const place of rows) assert.equal(controller.enrichmentState(place),'completed');
 });

@@ -2,9 +2,11 @@ const $ = selector => document.querySelector(selector);
 const I = InnerTableImport;
 const STORE = 'inner-table-places-v1';
 let account = null, friends = null, friendGuide = null, guideMode = 'device';
+let signedInAccountId = null;
 let places = [], pending = null, storageBroken = false;
 let demoMode = false, browseFriendPlaces = false;
 const selectedPlaces = new Set();
+const transientPublicDetails = new Map();
 
 try {
   const raw = localStorage.getItem(STORE);
@@ -26,7 +28,7 @@ const photoObserver = new IntersectionObserver(entries => {
     if(!list || observedPhotoList !== list) return;
     const visibleIds = new Set([...visiblePhotoRows].map(row=>row.dataset.placeId));
     const records = list.id === 'my-places' ? places : friendGuide?.places.filter(I.ready) || [];
-    google.ensureSavedPhotos(records.filter(place=>visibleIds.has(String(place.id)) && !licensedPhoto(google.merge(place))));
+    google.ensureSavedPhotos(records.filter(place=>visibleIds.has(String(place.id)) && !licensedPhoto(placeDetails(place))));
   });
 });
 
@@ -50,9 +52,116 @@ const google=GooglePlaces.createController({
   onUpdate:()=>{
     if(!$('#places-view').hidden) renderSaved();
     if(!$('#discover-view').hidden) renderDiscover();
+    venueResearch.run();
   },
-  onLink:(place,id)=>{const current=places.find(p=>p.id===place.id && p.url===place.url);if(current && current.googlePlaceId!==id){current.googlePlaceId=id;persist();}}
+  onLink:(place,id)=>{
+    const current=places.find(item=>item.id===place.id && item.url===place.url);
+    if(!current || current.googlePlaceId===id) return;
+    if(current.googlePlaceId) delete current.publicDetails;
+    current.googlePlaceId=id;
+    persist();
+  },
+  onEnrichmentChecked:place=>{
+    const index=places.indexOf(place);
+    const key=ownerEnrichmentKey();
+    if(index < 0 || !key) return;
+    try {localStorage.setItem(key,String(index + 1));} catch {}
+  }
 });
+const venueResearch = InnerTableEnrichment.createResearch({
+  getPlaces:enrichmentRecords,
+  mergeGoogle:placeDetails,
+  available:google.researchAvailable,
+  onChange:()=>{
+    if(!$('#places-view').hidden) renderSaved();
+    if(!$('#discover-view').hidden) renderDiscover();
+  },
+  onDetails:(place,evidence)=>{
+    if(places.includes(place)) {
+      const combined=I.combinePublicDetails(place.publicDetails,evidence);
+      if(JSON.stringify(combined)!==JSON.stringify(place.publicDetails)) {
+        place.publicDetails=combined;
+        persist();
+      }
+    } else if(friendGuide?.places.includes(place) && I.ready(place)) {
+      transientPublicDetails.set(place.id,I.combinePublicDetails(transientPublicDetails.get(place.id),evidence));
+    }
+  }
+});
+
+function enrichmentRecords() {
+  if(!$('#places-view').hidden) return places;
+  if(demoMode || (friendGuide && $('#discover-view').hidden)) return [];
+  return friendGuide ? friendGuide.places.filter(I.ready) : places;
+}
+
+function ownerEnrichmentKey() {
+  if(guideMode==='device') return 'inner-table-venue-progress:device';
+  return signedInAccountId ? 'inner-table-venue-progress:' + signedInAccountId : '';
+}
+
+function queueGuideDetails(priority = []) {
+  googleReady.then(() => {
+    const imports=priority.filter(place=>places.includes(place));
+    const records=imports.length ? places : enrichmentRecords();
+    let offset=0;
+    const key=records===places ? ownerEnrichmentKey() : '';
+    if(key) {
+      try {offset = Number(localStorage.getItem(key)) || 0;} catch {}
+    }
+    if(!Number.isSafeInteger(offset) || offset<0 || offset>=records.length) offset=0;
+    const ordered=[...new Set([...imports,...records.slice(offset),...records.slice(0,offset)])];
+    google.ensureGuideDetails(ordered.filter(I.needsEnrichment));
+    venueResearch.run();
+  });
+}
+
+function placeDetails(place) {
+  const details=google.merge(place);
+  const supplement=transientPublicDetails.get(place.id);
+  return I.mergePublicDetails(supplement
+    ? {...details,publicDetails:I.combinePublicDetails(place.publicDetails,supplement)} : details);
+}
+
+function metadataFor(place) {
+  return [
+    place.typeLabel || (place.category !== 'unknown' ? I.categoryLabel(place.category) : ''),
+    place.cuisines?.map(titleCaseEvidence).join(' / '),
+    place.neighborhood,
+    place.status !== 'not specified' ? I.visitLabel(place.status) : '',
+    place.price == null ? '' : `~$${place.price} per person`,
+  ].filter(Boolean).join(' · ');
+}
+
+function titleCaseEvidence(value) {return value[0].toUpperCase()+value.slice(1);}
+
+function addDetailSources(section, place) {
+  const sources = new Map();
+  const add = (label,url) => {
+    if(!url) return;
+    const entries = sources.get(url) || [];
+    entries.push(label);
+    sources.set(url,entries);
+  };
+  if(place.googleCategoryUsed) add('Category',google.placeURL(place));
+  if(place.googleNeighborhoodUsed) add('Neighborhood',google.placeURL(place));
+  if(place.googleCuisineTags?.length) add('Cuisine',google.placeURL(place));
+  for(const keyword of place.googleVenueKeywords || []) add(titleCaseEvidence(keyword),google.placeURL(place));
+  add('Category',place.webCategorySource);
+  add('Neighborhood',place.webNeighborhoodSource);
+  const suggestionLabels = {conversation:'Conversation',fun:'Lively outing',special:'Special occasion',date:'Date night',group:'Group outing'};
+  for(const evidence of place.webReviewTags || []) add(suggestionLabels[evidence.value] + ' suggestion',evidence.url);
+  for(const evidence of [...(place.webCuisineSources || []),...(place.webKeywordSources || [])]) {
+    add(titleCaseEvidence(evidence.value),evidence.url);
+  }
+  for(const [url,labels] of sources) {
+    const line = element('p','small',[...new Set(labels)].join(' and ') + ' from ');
+    const domain = InnerTableEnrichment.sourceLabel(url);
+    line.append(externalLink(url===google.placeURL(place) ? 'Google Maps' : domain,url));
+    section.append(line);
+  }
+}
+
 function element(tag, className = '', text = '') {
   const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
 }
@@ -146,18 +255,20 @@ function showView(view) {
   document.querySelectorAll('nav [data-view]').forEach(node => {node.classList.toggle('active',node.dataset.view === view); if(node.dataset.view === view) node.setAttribute('aria-current','page'); else node.removeAttribute('aria-current');});
   if (view === 'discover') renderDiscover(); else if(view === 'places') renderSaved();
   else if(view === 'friends') friends?.refresh();
+  queueGuideDetails();
   window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
 }
 document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click',() => showView(node.dataset.view)));
 function discoverPlaces() {
   if(demoMode) return InnerTableDemo;
-  return (friendGuide ? friendGuide.places : places).filter(I.ready).map(google.merge);
+  return (friendGuide ? friendGuide.places : places).filter(I.ready).map(placeDetails);
 }
 function setDemoMode(enabled) {
   demoMode = enabled;
   browseFriendPlaces = false;
   planChat.reset();
   renderDiscover();
+  queueGuideDetails();
 }
 $('#try-demo').addEventListener('click', () => {
   setDemoMode(true);
@@ -237,7 +348,7 @@ function renderDiscover() {
     outcome.recognized = true;
     outcome.unsupported = false;
   }
-  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'NYC sample guide' : friendGuide ? (friendGuide.owner.display_name || friendGuide.owner.username) + "’s guide" : 'Your guide'}`;
+  $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'NYC sample guide' : friendGuide ? friendName + '’s guide' : 'Your guide'}`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
     const noPersonal = !data.length && !friendGuide;
@@ -258,8 +369,9 @@ function renderDiscover() {
     const card = element('article','card');
     card.dataset.placeId = place.id;
     const body = element('div','card-body');
-    const metadata = [place.typeLabel || I.categoryLabel(place.category) + (place.googleCategoryUsed ? ' (Google)' : ''), place.neighborhood, place.price == null ? '' : `~$${place.price} per person`].filter(Boolean);
-    body.append(element('h3','',place.name),element('p','place-meta',metadata.join(' · ')));
+    const metadata = metadataFor(place);
+    body.append(element('h3','',place.name));
+    if(metadata) body.append(element('p','place-meta',metadata));
     if(!demoMode)body.append(element('p','card-source',friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
     if(demoMode) body.append(element('p','sample-description',place.description));
     if(place.note) body.append(element('blockquote','note',place.note));
@@ -283,9 +395,15 @@ function renderDiscover() {
         ? 'Personally recommended'
         : `${place.listName ? 'Saved list: ' + place.listName : 'Saved place'} · Not personally endorsed`));
       const tags = element('div','tags');
-      tags.append(element('span','visit-status',`Visit status: ${I.visitLabel(place.status)}`));
-      place.tags.forEach(tag => tags.append(element('span','tag',((place.googleReviewTags || []).includes(tag) ? 'Google review hint: ' : (place.inferredTags || []).includes(tag) ? 'Suggested: ' : '') + (tag === 'conversation' ? 'good for talking' : tag))));
-      detail.append(tags);
+      place.tags.forEach(tag => {
+        const webEvidence = place.webReviewTags?.find(item=>item.value===tag);
+        const source = (place.googleReviewTags || []).includes(tag) ? 'Google review hint · ' :
+          webEvidence ? 'Suggested from ' + InnerTableEnrichment.sourceLabel(webEvidence.url) + ' · ' :
+          (place.inferredTags || []).includes(tag) ? 'Suggested · ' : '';
+        tags.append(element('span','tag',source + (tag === 'conversation' ? 'good for talking' : tag)));
+      });
+      if(tags.childElementCount) detail.append(tags);
+      addDetailSources(detail,place);
       const extra = google.extras(place);
       if(extra) detail.append(extra);
     }
@@ -323,7 +441,7 @@ for(const starter of document.querySelectorAll('[data-sample-image]')) {
   starter.after(licensedPhotoCredit(place.photo));
 }
 $('#reset').addEventListener('click',() => {planChat.reset();HTMLFormElement.prototype.reset.call($('#search-form'));renderDiscover();$('#occasion').focus();});
-function changed() {if(demoMode)setDemoMode(false);persist();renderSaved();renderDiscover();}
+function changed(priority = []) {if(demoMode)setDemoMode(false);persist();renderSaved();renderDiscover();queueGuideDetails(priority);}
 function updateSelection() {
   $('#selection-count').textContent = `${selectedPlaces.size} selected`;
   $('#select-all-places').disabled = !places.length || selectedPlaces.size === places.length;
@@ -376,7 +494,7 @@ function renderSaved() {
   places.forEach(place => {
     const row=element('article','saved-row'), content=element('div');
     row.dataset.placeId = place.id;
-    const enriched=google.merge(place);
+    const enriched=placeDetails(place);
     const selection = element('label','place-selection');
     const checkbox = element('input');
     checkbox.type = 'checkbox';
@@ -390,7 +508,12 @@ function renderSaved() {
       updateSelection();
     });
     selection.append(checkbox,element('span','','Select'));
-    content.append(element('h3','',place.name),element('p','',`${I.categoryLabel(enriched.category)}${enriched.googleCategoryUsed?' (Google)':''} · ${place.neighborhood || 'Neighborhood unknown'} · ${I.visitLabel(place.status)}`));
+    content.append(element('h3','',place.name));
+    const metadata = metadataFor(enriched);
+    if(metadata) content.append(element('p','',metadata));
+    if(venueResearch.state(place)==='checking' || google.enrichmentState(place)==='checking') {
+      content.append(element('p','small','Checking venue details…'));
+    }
     if(place.note) content.append(element('p','',place.note));
     content.append(element('p','',place.recommended ? 'Personally recommended' : `${place.listName ? 'Saved list: '+place.listName : 'Saved place'} · Not personally endorsed`));
     const link=externalLink('Open in Maps ↗',google.placeURL(place));content.append(link);
@@ -405,6 +528,7 @@ function renderSaved() {
     const summary = element('summary','','Manage');
     summary.setAttribute('aria-label',`Manage ${place.name}`);
     manage.append(summary,selection,element('p','small',I.ready(place) ? 'In your guide' : 'Hidden from your guide'),actions);
+    addDetailSources(manage,enriched);
     row.append(content,manage);
     addPlacePhoto(row,enriched,content);
     list.append(row);
@@ -458,8 +582,18 @@ function openEditor(place) {
   chooseImportMethod('link');
   $('#place-editor').hidden=false;$('#editor-title').textContent=place ? 'Edit your place' : 'Add a place';
   $('#inferred-info').textContent=place && (place.inferredTags || []).length ? 'Some selected tags were suggested from saved note or list keywords. You can change them below.' : '';
+  $('#place-neighborhood').placeholder = 'e.g. West Village';
+  const autoCategory = $('#place-category option[value="auto"]');
+  autoCategory.hidden = !place;
+  autoCategory.textContent = 'Use suggested category';
   if(place) {
     for(const [field,key] of [['id','id'],['name','name'],['url','url'],['category','category'],['neighborhood','neighborhood'],['visited','status'],['note','note'],['price','price']]) $('#place-'+field).value=place[key] ?? '';
+    const details = placeDetails(place);
+    if(!autoCategory.hidden && place.category==='unknown' && !place.detailOverrides?.includes('category')) {
+      $('#place-category').value = 'auto';
+      if(details.category!=='unknown') autoCategory.textContent = 'Use suggested category · ' + I.categoryLabel(details.category);
+    }
+    if(!place.neighborhood && details.neighborhood) $('#place-neighborhood').placeholder = details.neighborhood;
     $('#place-recommend').checked=place.recommended;
     $('#place-in-guide').checked=I.ready(place);
     document.querySelectorAll('[name=tag]').forEach(node=>node.checked=place.tags.includes(node.value));
@@ -479,11 +613,20 @@ $('#place-form').addEventListener('submit',event=>{
   const id=$('#place-id').value || crypto.randomUUID();
   const previous=places.find(p=>p.id===id);
   if(places.some(p=>p.id!==id && I.mapsURL(p.url)===url)) {error.textContent='That Maps link is already in your saved places. Edit the existing place instead.';return;}
-  const place={id,name:$('#place-name').value.trim(),url,category:$('#place-category').value,neighborhood:$('#place-neighborhood').value.trim(),status:$('#place-visited').value,note:$('#place-note').value.trim(),price:$('#place-price').value ? Number($('#place-price').value) : null,tags:[...document.querySelectorAll('[name=tag]:checked')].map(node=>node.value),recommended:$('#place-recommend').checked,source:'Personal entry'};
+  const place={id,name:$('#place-name').value.trim(),url,category:$('#place-category').value==='auto' ? 'unknown' : $('#place-category').value,neighborhood:$('#place-neighborhood').value.trim(),status:$('#place-visited').value,note:$('#place-note').value.trim(),price:$('#place-price').value ? Number($('#place-price').value) : null,tags:[...document.querySelectorAll('[name=tag]:checked')].map(node=>node.value),recommended:$('#place-recommend').checked,source:'Personal entry'};
   place.inGuide=$('#place-in-guide').checked;
   place.inferredTags=(previous?.inferredTags || []).filter(tag=>place.tags.includes(tag));
   place.listName=previous?.listName || '';
   place.source=previous?.source || place.source;
+  if(previous) {
+    const overrides = new Set(I.detailOverrides(previous.detailOverrides));
+    if($('#place-category').value==='auto') overrides.delete('category');
+    else overrides.add('category');
+    if(place.neighborhood!==previous.neighborhood) overrides.add('neighborhood');
+    if(place.tags.length!==previous.tags.length || place.tags.some(tag=>!previous.tags.includes(tag))) overrides.add('tags');
+    place.detailOverrides = [...overrides];
+    if(previous.publicDetails && previous.url===url && previous.name===place.name) place.publicDetails = previous.publicDetails;
+  }
   if(previous?.googlePlaceId && previous.url===url)place.googlePlaceId=previous.googlePlaceId;
   if(previous && previous.url!==url)google.forget(id);
   if(!place.name) {error.textContent='Add a place name.';return;}
@@ -586,7 +729,7 @@ function applyImport(result, kind) {
   if(places.length+additions.length>2000) throw new Error('This would exceed the 2,000-place limit. Nothing was added.');
   places.push(...additions);
   closeEditor();
-  if(additions.length) changed();
+  if(additions.length) changed(additions);
   const status=$('#import-status');
   status.textContent=`${additions.length} ${additions.length===1?'place':'places'} ${kind==='backup'?'restored':'added to your guide'}. ${importCounts({...result,duplicates:result.duplicates+result.places.length-additions.length})}`;
   status.focus();
@@ -642,13 +785,15 @@ friends = createFriends({
     }
     demoMode = false;
     (friendGuide?.places || []).forEach(place => google.forget(place.id));
+    transientPublicDetails.clear();
     friendGuide = {...guide,places:I.validateBackup(JSON.stringify({version:1,places:guide.places}))};
-    planChat.reset();renderDiscover();
+    planChat.reset();renderDiscover();queueGuideDetails();
   },
   onClear: () => {
     (friendGuide?.places || []).forEach(place => google.forget(place.id));
+    transientPublicDetails.clear();
     friendGuide = null;
-    planChat.reset();renderDiscover();
+    planChat.reset();renderDiscover();queueGuideDetails();
   }
 });
 const tour = $('#welcome-tour');
@@ -661,7 +806,6 @@ const tourSteps = [
   ['#search-form .search-field', 'Describe your plan', 'Tell us who’s coming, what you feel like, or an area and budget. An example fills the draft so you can edit it before sending.'],
   ['#shortlist-anchor', 'Read the shortlist', 'The list shows who saved each place and their note. Open Place details for the explanation and Maps link when available.']
 ];
-let tourAccount = null;
 let tourStep = 0;
 let tourTarget = null;
 const tourSeen = new Set();
@@ -732,13 +876,13 @@ account = createAccounts({
   onSession: signedIn => {
     friends.setSession(signedIn);
     if(!signedIn) {
-      tourAccount = null;
+      signedInAccountId = null;
       dismissTour();
     }
   },
   onReady: id => {
-    if(!id || id === tourAccount) return;
-    tourAccount = id;
+    if(!id || id === signedInAccountId) return;
+    signedInAccountId = id;
     let seen = tourSeen.has(id);
     try {seen ||= localStorage.getItem('inner-table-tour-v1:' + id) === 'seen';} catch {}
     if(seen) return;
@@ -755,10 +899,11 @@ account = createAccounts({
     places = records;
     guideMode = mode;
     friends.leave();
-    closeEditor();planChat.reset();renderSaved();renderDiscover();
+    closeEditor();planChat.reset();renderSaved();renderDiscover();queueGuideDetails();
   }
 });
 renderSaved();
 renderDiscover();
 const googleReady = google.start();
 account.start();
+queueGuideDetails();

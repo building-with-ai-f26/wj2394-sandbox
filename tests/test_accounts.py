@@ -155,6 +155,20 @@ class AccountTests(unittest.TestCase):
                 client.handle('POST','/api/account/guide',{'places':[place(),{**place(),'price':float('nan')}],'revision':1},cookie)
             request.assert_not_called()
 
+    def test_only_sourced_public_cuisines_and_keywords_are_saved(self):
+        source = 'https://www.example.org/menu'
+        cuisine = {'value':'japanese', 'url':source}
+        keyword = {'value':'ramen', 'url':source}
+        incoming = {**place(), 'publicDetails': {
+            'cuisines':[cuisine, cuisine, {'value':'unknown', 'url':source}],
+            'keywords':[keyword, {'value':'brunch', 'url':'https://www.yelp.com/biz/example'}],
+            'neighborhood':{'value':'Brooklyn','url':source},
+        }, 'googleCuisineTags':['japanese'], 'googleAddress':'Transient fixture'}
+        cleaned = clean_places([incoming])[0]
+        self.assertEqual(cleaned['publicDetails'], {'cuisines':[cuisine], 'keywords':[keyword]})
+        self.assertNotIn('googleCuisineTags', cleaned)
+        self.assertNotIn('googleAddress', cleaned)
+
     def test_stale_revision_and_lost_response_retry(self):
         client, cookie = self.client()
         _, session = client.get_session(cookie)
@@ -206,3 +220,28 @@ class AccountTests(unittest.TestCase):
         with patch.object(client,'followed_guide',side_effect=AccountError('revoked',403)):
             with self.assertRaises(AccountError):
                 client.prepare_friend_plan(body,cookie)
+
+    def test_friend_plan_preserves_manual_choices_and_uses_sourced_cuisine(self):
+        client, cookie = self.client()
+        source = 'https://www.example.org/menu'
+        visible = {**place(), 'category':'cafe', 'tags':['conversation'], 'detailOverrides':['tags'],
+                   'publicDetails':{'cuisines':[{'value':'japanese', 'url':source}],
+                                    'keywords':[{'value':'coffee', 'url':source}]}}
+        candidate = {**visible, 'category':'bar', 'neighborhood':'Forged', 'googleNeighborhood':'East Village',
+                     'googleCuisineTags':['japanese'], 'googleReviews':['Raw review'], 'googleReviewTags':['fun'],
+                     'publicDetails':{'cuisines':[{'value':'korean', 'url':source}],
+                                      'keywords':[{'value':'ramen', 'url':source}]}}
+        body = {'ownerId':OWNER, 'places':[candidate]}
+        with patch.object(client,'followed_guide',return_value={'places':[visible]}):
+            result = client.prepare_friend_plan(body,cookie)['places'][0]
+        with patch.object(client,'followed_guide',return_value={'places':[{**visible, 'detailOverrides':[]}]}):
+            supplemented = client.prepare_friend_plan(body,cookie)['places'][0]
+        self.assertEqual(result['category'], 'cafe')
+        self.assertEqual(result['neighborhood'], 'East Village')
+        self.assertEqual(result['tags'], ['conversation'])
+        self.assertEqual(result['webCuisines'], ['japanese', 'korean'])
+        self.assertNotIn('webVenueKeywords', result)
+        self.assertEqual(supplemented['webVenueKeywords'], ['coffee', 'ramen'])
+        self.assertEqual(result['googleCuisineTags'], ['japanese'])
+        self.assertNotIn('googleReviews', result)
+        self.assertNotIn('googleReviewTags', result)
