@@ -120,7 +120,7 @@ class Planner:
         self.lock = threading.Lock()
         self.used = 0
 
-    def recommend(self, data, shortlist=False):
+    def recommend(self, data, shortlist=False, *, unlimited=False):
         messages, places = data.get("messages"), data.get("places")
         if not isinstance(messages, list) or not 1 <= len(messages) <= 20:
             raise PlanError("Start a new conversation after 20 messages.")
@@ -161,10 +161,11 @@ class Planner:
             return {"reply": "Add some saved places first, then tell me what you have in mind.", "matches": []}
         if not self.key:
             raise PlanError("The conversation is ready, but its AI connection still needs setup by the builder.", 503)
-        with self.lock:
-            if self.used >= 30:
-                raise PlanError("The demo’s conversation allowance has been reached. Please try again later.", 429)
-            self.used += 1
+        if not unlimited:
+            with self.lock:
+                if self.used >= 30:
+                    raise PlanError("The demo’s conversation allowance has been reached. Please try again later.", 429)
+                self.used += 1
         user_turns = [message["content"] for message in messages if message["role"] == "user"]
         japanese_requested = requires_japanese(user_turns)
         japanese_ids = {place["id"] for place in guide if japanese_cuisine_evidence(place)} if japanese_requested else set()

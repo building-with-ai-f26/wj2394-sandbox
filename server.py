@@ -1,6 +1,5 @@
 """Inner Table. app with explicit local and HTTPS-proxied public modes."""
 import argparse
-from collections import deque
 import ipaddress
 import json
 import os
@@ -12,10 +11,12 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
+from uuid import UUID
 from usage import UsageLog
 from planner import DEFAULT_SEARCH_MODEL, Planner, PlanError
 from venue_research import VenueResearch
 from accounts import Accounts, AccountError
+from daily_limits import DailyRequestQuota, QuotaUnavailable
 from shared_lists import fetch_shared_list, SharedListError
 
 ROOT = Path(__file__).resolve().parent
@@ -38,35 +39,6 @@ def public_app_origin():
     return value.rstrip('/')
 
 
-class RequestLimiter:
-    """Bound total and per-visitor API traffic for one running demo instance."""
-    def __init__(self, total=300, per_visitor=60, window=3600):
-        self.total = total
-        self.per_visitor = per_visitor
-        self.window = window
-        self.requests = deque()
-        self.visitors = {}
-        self.lock = threading.Lock()
-
-    def allow(self, visitor):
-        now = time.monotonic()
-        cutoff = now - self.window
-        with self.lock:
-            while self.requests and self.requests[0] <= cutoff:
-                self.requests.popleft()
-            self.visitors = {key:times for key,times in self.visitors.items() if times[-1] > cutoff}
-            times = self.visitors.get(visitor, deque())
-            while times and times[0] <= cutoff:
-                times.popleft()
-            if (len(self.requests) >= self.total or len(times) >= self.per_visitor
-                    or (visitor not in self.visitors and len(self.visitors) >= 2000)):
-                return False
-            self.requests.append(now)
-            times.append(now)
-            self.visitors[visitor] = times
-            return True
-
-
 def load_env(path=ROOT / ".env"):
     if not path.exists():
         return
@@ -80,9 +52,10 @@ def load_env(path=ROOT / ".env"):
 
 
 class PlacesError(Exception):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, retry_after=None):
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after
 
 
 PLACE_PHOTO_FIELDS = "id,photos"
@@ -101,17 +74,18 @@ class GooglePlaces:
         self.lock = threading.Lock()
         self.usage = usage
 
-    def status(self):
+    def status(self, *, unlimited=False):
         return {"configured": bool(self.key), "reviewsEnabled": self.reviews,
-                "requestsUsed": self.used, "requestLimit": self.limit}
+                "requestsUsed": self.used, "requestLimit": None if unlimited else self.limit}
 
-    def request(self, resource, payload=None, fields=None, query=None):
+    def request(self, resource, payload=None, fields=None, query=None, *, unlimited=False):
         if not self.key:
             raise PlacesError("Add GOOGLE_MAPS_API_KEY to your local .env and restart the server.", 503)
-        with self.lock:
-            if self.limit is not None and self.used >= self.limit:
-                raise PlacesError("Local session request limit reached. Review Google Cloud usage before restarting.", 429)
-            self.used += 1
+        if not unlimited:
+            with self.lock:
+                if self.limit is not None and self.used >= self.limit:
+                    raise PlacesError("Local session request limit reached. Review Google Cloud usage before restarting.", 429)
+                self.used += 1
         headers = {"X-Goog-Api-Key": self.key, "Content-Type": "application/json"}
         if fields:
             headers["X-Goog-FieldMask"] = fields
@@ -152,7 +126,7 @@ class GooglePlaces:
                     sku = "Place Details Enterprise + Atmosphere" if fields and "reviews" in fields else "Place Details Enterprise"
                 self.usage.record(operation, http_status, round((time.monotonic() - started) * 1000), sku)
 
-    def search(self, name, neighborhood="", include_photos=False):
+    def search(self, name, neighborhood="", include_photos=False, *, unlimited=False):
         if not isinstance(name, str) or not name.strip() or len(name) > 200:
             raise PlacesError("Provide a place name up to 200 characters.")
         if not isinstance(neighborhood, str) or len(neighborhood) > 100:
@@ -166,14 +140,14 @@ class GooglePlaces:
             "textQuery": " ".join(part for part in [name.strip(), neighborhood.strip()] if part),
             "pageSize": 3, "languageCode": "en", "regionCode": "US",
             "locationBias": {"circle": {"center": {"latitude": 40.7306, "longitude": -73.9866}, "radius": 30000}}
-        }, fields)
+        }, fields, unlimited=unlimited)
         places = data.get("places", [])[:3]
         if include_photos:
             for place in places:
                 place["photos"] = (place.get("photos") or [])[:1]
         return {"places": places}
 
-    def details(self, place_id, include_reviews=False, photos_only=False, enrichment_only=False):
+    def details(self, place_id, include_reviews=False, photos_only=False, enrichment_only=False, *, unlimited=False):
         if not isinstance(place_id, str) or not PLACE_ID.fullmatch(place_id):
             raise PlacesError("Invalid Google place ID.")
         if not isinstance(include_reviews, bool):
@@ -189,17 +163,17 @@ class GooglePlaces:
             fields += ",priceRange,websiteUri"
         if include_reviews:
             fields += ",reviews,editorialSummary,servesLunch,servesDinner,goodForGroups,liveMusic"
-        data = self.request("places/" + quote(place_id, safe=""), fields=fields)
+        data = self.request("places/" + quote(place_id, safe=""), fields=fields, unlimited=unlimited)
         # Only one photo is needed per card. Review order remains Google's relevance order.
         data["photos"] = data.get("photos", [])[:1]
         if not photos_only:
             data["reviews"] = data.get("reviews", [])[:5] if include_reviews else []
         return data
 
-    def photo(self, name):
+    def photo(self, name, *, unlimited=False):
         if not isinstance(name, str) or not PHOTO_NAME.fullmatch(name):
             raise PlacesError("Invalid photo resource.")
-        data = self.request(name + "/media", query={"maxWidthPx": 800, "skipHttpRedirect": "true"})
+        data = self.request(name + "/media", query={"maxWidthPx": 800, "skipHttpRedirect": "true"}, unlimited=unlimited)
         uri = data.get("photoUri", "")
         parsed = urlsplit(uri)
         if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port or not (
@@ -259,23 +233,45 @@ class Handler(SimpleHTTPRequestHandler):
             raise PlacesError("Open Inner Table. at its app address to make this request.", 403)
         if public_origin and self.command == 'POST' and origin != public_origin:
             raise PlacesError('This request needs to come from the app.', 403)
+        accounts = getattr(self.server, 'accounts', None)
+        session = accounts.get_session(self.headers.get('Cookie'))[1] if accounts else None
+        owner_id = getattr(self.server, 'demo_owner_id', None)
+        owner = bool(owner_id and session and session['user']['id'] == owner_id)
         if public_origin and not oauth_callback:
+            route = urlsplit(self.path).path
+            endpoint = (self.command, route)
+            if endpoint == ('POST', '/api/account/sign-out') or (not session and endpoint in {
+                ('GET', '/api/account/session'),
+                ('POST', '/api/account/sign-in'),
+                ('POST', '/api/account/google/start'),
+            }):
+                # Keep account switching reachable under the auth system's own controls.
+                return False
             # Render supplies the visitor address as the first forwarded entry.
             forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
             try:
                 visitor = str(ipaddress.ip_address(forwarded or self.client_address[0]))
             except ValueError:
                 visitor = self.client_address[0]
-            if not self.server.api_limiter.allow(visitor):
-                raise PlacesError('The demo request limit was reached. Please try again later.', 429)
+            priority = route.startswith('/api/account/') or route in ('/api/plan', '/api/plan/shortlist')
+            try:
+                retry_after = self.server.api_limiter.consume(visitor, priority=priority, owner=owner)
+            except QuotaUnavailable:
+                raise PlacesError('The demo allowance is temporarily unavailable. Please try again.', 503) from None
+            if retry_after:
+                message = ('Today’s demo allowance is used.' if priority else 'Today’s background allowance is used.')
+                raise PlacesError(message + ' Try again after midnight New York time.', 429, retry_after)
+        return owner
 
-    def json_response(self, data, status=200, cookie=None):
+    def json_response(self, data, status=200, cookie=None, retry_after=None):
         content = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
         if cookie:
             self.send_header("Set-Cookie", cookie)
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
         self.end_headers()
         self.wfile.write(content)
 
@@ -291,7 +287,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             return super().do_GET()
         try:
-            self.check_request(oauth_callback=route.path == '/api/account/google/callback')
+            owner_request = self.check_request(oauth_callback=route.path == '/api/account/google/callback')
             if route.path == '/api/account/google/callback':
                 try:
                     _, cookie = self.server.accounts.finish_google(parse_qs(route.query).get('code', [''])[0], self.headers.get('Cookie'))
@@ -322,12 +318,12 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response(result, cookie=cookie)
             elif route.path == "/api/status":
                 self.json_response({
-                    **self.server.places.status(),
+                    **self.server.places.status(unlimited=owner_request),
                     "aiConfigured": bool(getattr(getattr(self.server, "planner", None), "key", "")),
                     "venueResearchConfigured": bool(getattr(getattr(self.server, "venue_research", None), "key", "")),
                 })
             elif route.path == "/api/places/photo":
-                content, mime = self.server.places.photo(parse_qs(route.query).get("name", [""])[0])
+                content, mime = self.server.places.photo(parse_qs(route.query).get("name", [""])[0], unlimited=owner_request)
                 self.send_response(200)
                 self.send_header("Content-Type", mime)
                 self.send_header("Content-Length", str(len(content)))
@@ -336,11 +332,11 @@ class Handler(SimpleHTTPRequestHandler):
             else:
                 raise PlacesError("Not found.", 404)
         except (PlacesError, AccountError) as error:
-            self.json_response({"error": str(error)}, error.status)
+            self.json_response({"error": str(error)}, error.status, retry_after=getattr(error, 'retry_after', None))
 
     def do_POST(self):
         try:
-            self.check_request()
+            owner_request = self.check_request()
             if self.headers.get_content_type() != "application/json":
                 raise PlacesError("Send JSON.", 415)
             length = int(self.headers.get("Content-Length", "0"))
@@ -363,7 +359,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if self.path in ('/api/account/plan', '/api/account/plan/shortlist'):
                 verified = self.server.accounts.prepare_friend_plan(data, self.headers.get('Cookie'))
-                self.json_response(self.server.planner.recommend(verified, shortlist=self.path.endswith('/shortlist')))
+                self.json_response(self.server.planner.recommend(verified, shortlist=self.path.endswith('/shortlist'), unlimited=owner_request))
                 return
             elif self.path == '/api/account/friend-guide':
                 self.json_response(self.server.accounts.followed_guide(data.get('ownerId'), self.headers.get('Cookie')))
@@ -373,25 +369,25 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response(result, cookie=cookie)
                 return
             elif self.path in ("/api/plan", "/api/plan/shortlist"):
-                self.json_response(self.server.planner.recommend(data, shortlist=self.path.endswith("/shortlist")))
+                self.json_response(self.server.planner.recommend(data, shortlist=self.path.endswith("/shortlist"), unlimited=owner_request))
                 return
             elif self.path == "/api/places/research":
-                self.json_response(self.server.venue_research.check(data))
+                self.json_response(self.server.venue_research.check(data, unlimited=owner_request))
                 return
             elif self.path == "/api/places/search":
                 result = self.server.places.search(data.get("name"), data.get("neighborhood", ""),
-                                                   include_photos=data.get("includePhotos", False))
+                                                   include_photos=data.get("includePhotos", False), unlimited=owner_request)
             elif self.path == "/api/places/details":
                 result = self.server.places.details(data.get("placeId"), data.get("includeReviews", False),
                                                     photos_only=data.get("photosOnly", False),
-                                                    enrichment_only=data.get("enrichmentOnly", False))
+                                                    enrichment_only=data.get("enrichmentOnly", False), unlimited=owner_request)
             else:
                 raise PlacesError("Not found.", 404)
-            self.json_response({"result": result, "usage": self.server.places.status()})
+            self.json_response({"result": result, "usage": self.server.places.status(unlimited=owner_request)})
         except (ValueError, json.JSONDecodeError):
             self.json_response({"error": "Invalid JSON or request length."}, 400)
         except (PlacesError, PlanError, AccountError) as error:
-            self.json_response({"error": str(error)}, error.status)
+            self.json_response({"error": str(error)}, error.status, retry_after=getattr(error, 'retry_after', None))
 
 
 def main():
@@ -408,10 +404,26 @@ def main():
     if origin and args.no_places_limit:
         parser.error("--no-places-limit is available only in the local preview.")
     places_limit = None if args.no_places_limit else os.getenv("GOOGLE_PLACES_MAX_REQUESTS_PER_SESSION", "40")
+    accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''), origin)
+    owner_id = os.getenv('DEMO_OWNER_ACCOUNT_ID', '')
+    if owner_id:
+        try:
+            owner_id = str(UUID(owner_id))
+        except ValueError:
+            parser.error("DEMO_OWNER_ACCOUNT_ID must be a Supabase user UUID.")
+    api_limiter = None
+    if origin:
+        if not accounts.configured:
+            parser.error("Public mode needs a Supabase project for daily usage.")
+        try:
+            api_limiter = DailyRequestQuota(accounts.request, os.getenv('DEMO_QUOTA_SECRET', ''))
+        except ValueError as error:
+            parser.error(str(error))
     server = ThreadingHTTPServer(('0.0.0.0' if origin else '127.0.0.1', args.port), Handler)
     server.public_origin = origin
-    server.api_limiter = RequestLimiter()
-    server.accounts = Accounts(os.getenv('SUPABASE_URL', ''), os.getenv('SUPABASE_PUBLISHABLE_KEY', ''), origin)
+    server.api_limiter = api_limiter
+    server.demo_owner_id = owner_id
+    server.accounts = accounts
     server.planner = Planner(os.getenv("OPENROUTER_API_KEY", ""), os.getenv("OPENROUTER_MODEL", DEFAULT_SEARCH_MODEL),
                              UsageLog(ROOT / ".local" / "usage.jsonl"))
     research_key = server.planner.key if os.getenv("VENUE_RESEARCH_ENABLED", "false").lower() == "true" else ""

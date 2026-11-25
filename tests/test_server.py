@@ -181,7 +181,7 @@ class HTTPTests(unittest.TestCase):
             with caught.exception as response:
                 self.assertEqual(response.code, 503)
                 self.assertEqual(json.load(response)['error'], 'Research is temporarily unavailable.')
-        service.check.assert_called_once_with(data)
+        service.check.assert_called_once_with(data, unlimited=False)
 
     def test_profile_photos_are_same_origin_uncached_images(self):
         with patch.object(self.server.accounts,'profile_photo',return_value=b'jpeg fixture') as photo:

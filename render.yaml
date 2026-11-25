@@ -25,6 +25,10 @@ services:
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
+      - key: DEMO_QUOTA_SECRET
+        sync: false
+      - key: DEMO_OWNER_ACCOUNT_ID
+        sync: false
       - key: POSTHOG_PROJECT_TOKEN
         sync: false
       - key: POSTHOG_HOST
