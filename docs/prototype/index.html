@@ -77,7 +77,18 @@
   <div id="plan-start" class="plan-start" hidden><h2>Shortlist</h2><p>The places that fit your plan appear here.</p></div>
   <div class="list-heading" hidden>
     <div><h2 id="shortlist-heading" tabindex="-1">Your shortlist</h2><p id="result-summary" role="status" aria-live="polite"></p></div>
-    <button id="back-to-plan" class="text-button" type="button">Back to plan</button>
+    <div class="shortlist-heading-actions">
+      <button id="shortlist-share" class="text-button" type="button" aria-expanded="false" aria-controls="shortlist-share-options" hidden>Share places</button>
+      <button id="back-to-plan" class="text-button" type="button">Back to plan</button>
+    </div>
+  </div>
+  <div id="shortlist-share-options" hidden>
+    <div class="shortlist-share-actions">
+      <p id="shortlist-share-count" role="status">Select places to share.</p>
+      <button id="shortlist-share-copy" class="secondary" type="button" disabled>Copy selected</button>
+    </div>
+    <p id="shortlist-share-status" role="status"></p>
+    <label id="shortlist-share-preview-label" hidden>Text to copy<textarea id="shortlist-share-preview" rows="4" readonly></textarea></label>
   </div>
 </div>
 <div id="results" class="cards"></div>
@@ -182,10 +193,12 @@
 </form></div>
 <div id="account-member" hidden>
 <div class="profile-identity"><div class="profile-name-row"><span id="profile-avatar" class="person-avatar" aria-hidden="true"></span><div><strong id="profile-display-name"></strong><span id="profile-display-handle"></span></div></div><p id="profile-display-bio" hidden></p></div>
-<details class="utility-group"><summary>Edit your profile</summary>
-<form id="account-profile-form"><label for="profile-name">Display name</label><input id="profile-name" maxlength="80" autocomplete="nickname" required>
-<label for="profile-username">Username</label><input id="profile-username" minlength="3" maxlength="30" pattern="[a-z0-9_]{3,30}" required aria-describedby="username-help">
+<details class="utility-group" id="profile-editor"><summary>Edit your profile</summary>
+<div id="profile-setup-intro" hidden><h2>Choose a username</h2><p>Friends use your username to find you and ask to follow your guide.</p></div>
+<form id="account-profile-form">
+<label for="profile-username">Username</label><input id="profile-username" minlength="3" maxlength="30" pattern="[a-z0-9_]{3,30}" autocomplete="username" autocapitalize="none" spellcheck="false" required aria-describedby="username-help">
 <p id="username-help" class="small">3–30 lowercase letters, numbers or underscores.</p>
+<label for="profile-name">Display name <span class="profile-setup-optional">(optional)</span></label><input id="profile-name" maxlength="80" autocomplete="nickname" required>
 <div id="profile-personal-details" hidden>
   <div class="profile-photo-editor">
     <span id="profile-photo-preview" class="person-avatar" aria-hidden="true"></span>
@@ -196,7 +209,7 @@
   <label for="profile-bio">Bio (optional)</label><textarea id="profile-bio" rows="3" maxlength="160" aria-describedby="profile-personal-help"></textarea>
   <p id="profile-personal-help" class="small">Your photo and bio are visible to people you approve to read your guide.</p>
 </div>
-<button id="profile-save" class="primary" type="submit">Save profile</button></form></details>
+<div class="actions"><button id="profile-save" class="primary" type="submit">Save profile</button><button id="profile-setup-skip" class="text-button" type="button" hidden>Skip for now</button></div></form></details>
 <details class="utility-group" id="guide-settings"><summary>Guide and device settings</summary><p>Copy this browser’s saved places, personal notes and statuses to your private account. Existing account entries are kept when a Maps link appears in both guides.</p>
 <button id="account-copy" type="button" class="primary">Copy device places to my account</button>
 <div class="actions"><button id="account-use-cloud" class="secondary" type="button">Use my account guide</button><button id="account-use-device" class="secondary" type="button">Use this device’s guide</button></div>

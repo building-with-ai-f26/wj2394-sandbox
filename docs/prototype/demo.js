@@ -4,6 +4,8 @@ const InnerTableDemo = [
     id:'demo-1', name:'Via Carota', category:'restaurant', neighborhood:'West Village',
     address:'51 Grove St, Manhattan', description:'Italian restaurant serving seasonal dishes in the West Village.',
     website:'https://www.viacarota.com/',
+    googlePlaceId:'ChIJr7FOf5NZwokRu3CDYtzVmuQ',
+    reservationURL:'https://resy.com/cities/new-york-ny/venues/via-carota',
     photo:{
       file:'via-carota.jpg', author:'Jim.henderson', license:'CC BY-SA 4.0',
       source:'https://commons.wikimedia.org/wiki/File:Via_Carota_2023_jeh.jpg',
@@ -14,6 +16,8 @@ const InnerTableDemo = [
     id:'demo-2', name:'Caffè Dante', category:'bar', neighborhood:'Greenwich Village',
     address:'79–81 MacDougal St, Manhattan', description:'Historic Greenwich Village café and aperitivo bar with cocktails and Italian food.',
     website:'https://www.dante-nyc.com/location/dante-nyc/',
+    mapsURL:'https://www.google.com/maps?cid=4339773443060882983',
+    reservationURL:'https://resy.com/cities/new-york-ny/venues/dante',
     photo:{
       file:'caffe-dante.jpg', author:'Billie Grace Ward', license:'CC BY 2.0',
       source:'https://www.flickr.com/photos/wwward0/6820088678/',
@@ -37,6 +41,6 @@ const InnerTableDemo = [
   }
 ].map(place => Object.freeze({
   ...place,
-  url:'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place.name + ', ' + place.address),
+  url:place.mapsURL || 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(place.name + ', ' + place.address),
   price:null, note:'', tags:Object.freeze([]), status:'not specified', recommended:false, inGuide:true
 }));
