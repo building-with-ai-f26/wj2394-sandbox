@@ -61,6 +61,15 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
     row.append(identity,actions);
     return {row,actions};
   }
+  function memberOf(group,id) {
+    return connections[group].some(person=>person.id===id);
+  }
+  function canRequestGuide(id) {
+    return !memberOf('following',id) && !memberOf('outgoing',id);
+  }
+  function canFollowBack(id) {
+    return memberOf('followers',id) && canRequestGuide(id);
+  }
   function renderPreview() {
     previewPanel.replaceChildren();
     previewPanel.hidden = !preview;
@@ -73,7 +82,9 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
       actions.append(node('span','Requested','request-state'));
       addAction(actions,'preview:cancel','Cancel request',()=>updateConnection(preview,'outgoing','unfollow','Request canceled.'));
     } else {
-      addAction(actions,'preview:request','Request to follow',sendFollow,true);
+      const person = preview;
+      const label = canFollowBack(person.id) ? 'Follow back' : 'Follow';
+      addAction(actions,'preview:request',label,()=>sendFollow(person,true),true);
     }
     previewPanel.append(row);
   }
@@ -92,7 +103,7 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
         ['Stop following','unfollow','You stopped following this guide.']
       ]],
       ['requests','Received',[
-        ['Approve request','approve','Request approved. They can read your visible places.'],
+        ['Approve','approve','Request approved. They can read your visible places.'],
         ['Decline','revoke','Request declined.']
       ]],
       ['outgoing','Sent',[
@@ -113,10 +124,19 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
       if(title) list.append(node('h3',title));
       for(const person of connections[key]) {
         const item = personRow(person,key==='following');
-        if(key==='outgoing') item.actions.append(node('span','Requested','request-state'));
+        if(key==='outgoing' || (key==='followers' && memberOf('outgoing',person.id))) {
+          item.actions.append(node('span','Requested','request-state'));
+        }
+        if(key==='followers' && canFollowBack(person.id)) {
+          addAction(item.actions,`followers:${person.id}:follow`,'Follow back',()=>sendFollow(person),true);
+        }
         for(const [label,route,message] of actions) {
           const handler = route==='read' ? ()=>openGuide(person.id) : ()=>updateConnection(person,key,route,message);
           addAction(item.actions,`${key}:${person.id}:${route}`,label,handler,route==='read' || route==='approve');
+          if(route==='approve' && canRequestGuide(person.id)) {
+            addAction(item.actions,`requests:${person.id}:approve-and-follow`,'Approve and follow back',
+              ()=>updateConnection(person,key,route,message,true));
+          }
         }
         list.append(item.row);
       }
@@ -158,7 +178,9 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
       $('#friends-member').removeAttribute('aria-busy');
       const restore = before===document.activeElement || document.activeElement===document.body;
       render();
-      if(focus && (restore || focus==='#discover-title')) $(focus).focus();
+      if(focus && (restore || focus==='#discover-title')) {
+        (focus.startsWith('#') ? $(focus) : controls.get(focus) || usernameInput).focus();
+      }
       else if(key && restore && !$('#friends-view').hidden) {
         (controls.get(key) || (key.startsWith('preview:') && !previewPanel.hidden ? previewPanel : usernameInput)).focus();
       }
@@ -169,40 +191,75 @@ function createFriends({beforeSwitch, onSelect, onClear, onFollowing = () => {}}
     try {await refresh();}
     catch {say(message + ' Refresh connections to see the latest changes.');}
   }
-  function updateConnection(person,group,route,message) {
+  function updateConnection(person,group,route,message,followBack=false) {
     return action(async () => {
       const context = generation;
       await request(route,{id:person.id});
       if(context!==generation) return;
       connections[group] = connections[group].filter(item=>item.id!==person.id);
-      if(route==='approve') connections.followers = [...connections.followers,person];
+      if(route==='approve') {
+        if(!memberOf('followers',person.id)) connections.followers = [...connections.followers,person];
+        if(followBack && canFollowBack(person.id)) {
+          try {
+            const result = await requestFollow(person);
+            if(!result) return;
+            message = result.approved ? 'Request approved. You already follow each other.' :
+              'Request approved. Follow-back request sent.';
+          } catch {
+            if(context!==generation) return;
+            message = 'Request approved. We could not confirm your follow-back request.';
+          }
+        }
+      }
       if(route==='unfollow' && preview?.id===person.id) {
         preview = {id:person.id,display_name:person.display_name,username:person.username,connection_status:'none'};
       }
       if(route==='unfollow' && selected?.owner.id===person.id) leave();
       await updateConnectionsAfter(message);
+      if(route!=='approve' || context!==generation || $('#friends-view').hidden) return;
+      if(canFollowBack(person.id)) {
+        $('#friend-sharing').open = true;
+        return `followers:${person.id}:follow`;
+      }
+      if(memberOf('outgoing',person.id)) return '#friend-requests-title';
+      if(memberOf('following',person.id)) return '#friend-guides-title';
     });
   }
-  function sendFollow() {
-    if(!preview || preview.connection_status!=='none' || preview.username!==username()) return;
+  async function requestFollow(person) {
+    const revision = lookupRevision;
+    const context = generation;
+    const isCurrentPreview = () => revision===lookupRevision && preview?.id===person.id;
+    let result;
+    try {
+      result = await request('follow',{username:person.username,expected_id:person.id});
+    } catch(error) {
+      if(error.status===404 && context===generation && isCurrentPreview()) preview = null;
+      throw error;
+    }
+    if(context!==generation) return;
+    if(result.approved) {
+      connections.outgoing = connections.outgoing.filter(item=>item.id!==person.id);
+      if(!memberOf('following',person.id)) connections.following = [person,...connections.following];
+    } else if(!memberOf('outgoing',person.id)) {
+      connections.outgoing = [person,...connections.outgoing];
+    }
+    if(isCurrentPreview()) preview = {...preview,connection_status:result.approved?'approved':'pending'};
+    return result;
+  }
+  function sendFollow(person,fromPreview=false) {
+    if(fromPreview) {
+      if(preview!==person || person.connection_status!=='none' || person.username!==username()) return;
+    } else if(!canFollowBack(person.id)) return;
     return action(async () => {
-      const person = preview;
       const revision = lookupRevision;
       const context = generation;
-      let result;
-      try {
-        result = await request('follow',{username:person.username,expected_id:person.id});
-      } catch(error) {
-        if(error.status===404 && revision===lookupRevision) preview = null;
-        throw error;
-      }
-      if(context!==generation) return;
-      if(!result.approved && !connections.outgoing.some(item=>item.id===person.id)) {
-        connections.outgoing = [person,...connections.outgoing];
-      }
-      if(revision===lookupRevision) preview = {...person,connection_status:result.approved?'approved':'pending'};
+      const result = await requestFollow(person);
+      if(!result) return;
       await updateConnectionsAfter(result.approved ? 'You can already search this guide.' : 'Request sent.');
-      if(revision===lookupRevision && !$('#friends-view').hidden) return '#friend-preview';
+      if(context!==generation || $('#friends-view').hidden) return;
+      if(fromPreview && revision===lookupRevision && preview?.id===person.id) return '#friend-preview';
+      if(memberOf('outgoing',person.id)) return '#friend-requests-title';
+      if(memberOf('following',person.id)) return '#friend-guides-title';
     });
   }
   function openGuide(ownerId) {

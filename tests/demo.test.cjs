@@ -32,7 +32,10 @@ test('sample mode leaves personal and approved-friend guides intact and resets c
     'Via Carota', 'Caffè Dante', 'Devoción Williamsburg', 'Brooklyn Bridge Park, Pier 1'
   ]);
   assert.ok(samples.every(place => !place.recommended && place.status === 'not specified' && place.price === null && !place.note));
-  assert.ok(samples.every(place => place.website.startsWith('https://') && new URL(place.url).searchParams.get('query').startsWith(place.name)));
+  assert.ok(samples.every(place => place.website.startsWith('https://')));
+  assert.equal(samples[0].googlePlaceId,'ChIJr7FOf5NZwokRu3CDYtzVmuQ');
+  assert.equal(new URL(samples[1].url).searchParams.get('cid'),'4339773443060882983');
+  assert.ok(samples.slice(2).every(place=>new URL(place.url).searchParams.get('query').startsWith(place.name)));
   assert.equal(samples.filter(place => place.photo).length,3);
   for(const {photo} of samples.filter(place => place.photo)) {
     assert.ok(fs.existsSync('docs/prototype/artwork/' + photo.file));

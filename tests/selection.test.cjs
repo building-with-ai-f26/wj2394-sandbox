@@ -68,3 +68,20 @@ test('remove selected requires confirmation and leaves other places intact', () 
   assert.equal(fixture.context.selectedPlaces.size, 0);
   assert.equal(fixture.saves(), 1);
 });
+
+test('shortlist share text includes venue links and excludes guide-only content', () => {
+  const maps = 'https://www.google.com/maps/place/Via+Carota/';
+  const context = vm.createContext({
+    URL, demoMode:false,
+    I:{sourceURL:value=>value?.startsWith('https://') ? value : null,categoryLabel:()=>'Restaurant'},
+    google:{placeURL:place=>place.url}
+  });
+  const app = fs.readFileSync('docs/prototype/app.js', 'utf8');
+  vm.runInContext(app.slice(app.indexOf('function reservationLink'),app.indexOf("$('#shortlist-share').addEventListener")),context);
+  const venue = {name:'Via Carota',url:maps,category:'restaurant',neighborhood:'West Village',
+    note:'A private guide note.', description:'Guide-only copy.', reason:'Based on a private note.'};
+  assert.equal(context.formatSharedPlaces([{...venue,_google:{websiteUri:'https://example.com/menu'}}]),
+    `Via Carota\nRestaurant · West Village\nGoogle Maps: ${maps}`);
+  assert.equal(context.formatSharedPlaces([{...venue,_google:{websiteUri:'https://example.com/reservations/'}}]),
+    `Via Carota\nRestaurant · West Village\nGoogle Maps: ${maps}\nReservations: https://example.com/reservations/`);
+});
