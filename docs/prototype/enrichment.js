@@ -56,7 +56,7 @@
     });
   }
   function createResearch({getPlaces, mergeGoogle, available, onChange, onDetails}) {
-    let running=false, paused=false, automatic=false;
+    let running=false, paused=false, automatic=false, dayResetAt=Infinity;
     const attempts=new Map(), checkedVenues=new Map(), waiting=new Set();
     const key=place=>place.id + '|' + place.url + '|' + place.name;
     function state(place) {return attempts.get(key(place)) || 'idle';}
@@ -105,7 +105,11 @@
           body:JSON.stringify({name:place.name,area,...(address && {address})}),
           signal:AbortSignal.timeout(45_000),
         });
-        if(response.status===429 || response.status===503) paused=true;
+        if(response.status===429 || response.status===503) {
+          paused=true;
+          const seconds=Number(response.headers?.get('Retry-After'));
+          dayResetAt=seconds>0 ? Date.now()+seconds*1000 : Infinity;
+        }
         if(!response.ok) {
           attempts.set(id,paused ? 'paused' : 'unavailable');
           return;
@@ -137,7 +141,13 @@
         settle();
       }
     }
+    function resume() {
+      paused=false;
+      dayResetAt=Infinity;
+      for(const [id,status] of attempts) if(status==='paused') attempts.delete(id);
+    }
     function run(ids) {
+      if(paused && Date.now()>=dayResetAt) resume();
       if(!Array.isArray(ids)) {
         automatic=true;
         settle();
@@ -151,7 +161,7 @@
         drain();
       });
     }
-    return {run,state};
+    return {run,state,resume};
   }
   root.InnerTableEnrichment = {createResearch, sourceLabel, verifiedDetails};
 })(globalThis);

@@ -91,7 +91,7 @@
     let enrichingId=null;
     const photoQueues=[manualPhotos,shortlistPhotos,savedPhotos];
     let configured=false,reviewsEnabled=false,researchConfigured=false,draining=false,planning=0;
-    let remaining=0,shortlistReserve=0,checkingId=null,limited=false,statusRequest=null;
+    let remaining=0,shortlistReserve=0,checkingId=null,limited=false,statusRequest=null,dayResetAt=Infinity;
     const $=selector=>document.querySelector(selector);
     const node=(tag,cls='',text='')=>{const item=document.createElement(tag);item.className=cls;item.textContent=text;return item;};
     function link(text,url) {const safe=safeURL(url || '');if(!safe)return node('span','',text);const item=node('a','',text);item.href=safe;item.target='_blank';item.rel='noopener noreferrer';return item;}
@@ -115,6 +115,8 @@
       if(response.status===429) {
         remaining=0;
         limited=true;
+        const seconds=Number(response.headers?.get('Retry-After'));
+        dayResetAt=seconds>0 ? Date.now()+seconds*1000 : Infinity;
         throw pausedError();
       }
     }
@@ -420,6 +422,10 @@
       }
     }
     async function prepareForPlan(ids) {
+      if(limited && Date.now()>=dayResetAt) {
+        try {await refreshAllowance();}
+        catch(error) {return {checked:0,requested:ids.length,error:error.message};}
+      }
       if(!configured) return {checked:0,requested:ids.length,error:'Google details are unavailable.'};
       const places=new Map(getPlaces().map(place=>[String(place.id),place]));
       const targets=ids.map(id=>places.get(id)).filter(Boolean).slice(0,6);
@@ -521,6 +527,7 @@
           researchConfigured=status.venueResearchConfigured===true;
           remaining=configured ? placesBudget(status) : 0;
           limited=false;
+          dayResetAt=Infinity;
           shortlistReserve=Number.isFinite(status.requestLimit) ? Math.ceil(status.requestLimit/2) : 0;
         })().finally(()=>{statusRequest=null;});
       }

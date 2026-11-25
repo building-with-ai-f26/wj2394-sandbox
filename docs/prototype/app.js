@@ -896,10 +896,17 @@ document.addEventListener('keydown', event => {
   }
 });
 
+function refreshVenueAllowances() {
+  venueResearch.resume();
+  googleReady = googleReady.then(() => google.start());
+  queueGuideDetails();
+}
+
 account = createAccounts({
   onSession: signedIn => {
     friends.setSession(signedIn);
     if(!signedIn) {
+      if(signedInAccountId) refreshVenueAllowances();
       signedInAccountId = null;
       dismissTour();
     }
@@ -907,6 +914,7 @@ account = createAccounts({
   onReady: id => {
     if(!id || id === signedInAccountId) return;
     signedInAccountId = id;
+    refreshVenueAllowances();
     let seen = tourSeen.has(id);
     try {seen ||= localStorage.getItem('inner-table-tour-v1:' + id) === 'seen';} catch {}
     if(seen) return;
@@ -928,7 +936,7 @@ account = createAccounts({
 });
 renderSaved();
 renderDiscover();
-const googleReady = google.start();
+let googleReady = google.start();
 account.start().finally(()=>{
   enrichmentReady=true;
   queueGuideDetails();

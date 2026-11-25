@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 from uuid import UUID
 from venue_research import BOROUGHS, CATEGORY_WORDS, CUISINES, KEYWORD_WORDS, normalized, public_url
 
-COOKIE = 'inner_table_session'
+COOKIE = 'inner_table_session_v2'
 OAUTH_COOKIE = 'inner_table_google'
 TAGS = {'conversation', 'fun', 'special', 'date', 'group'}
 GOOGLE_SERVICE_FIELDS = ('servesLunch', 'servesDinner', 'goodForGroups', 'liveMusic')
@@ -283,7 +283,7 @@ class Accounts:
 
     def cookie(self, session_id='', age=28800):
         secure = '; Secure' if self.public_origin else ''
-        return f'{COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/api/account; Max-Age={age}' + secure
+        return f'{COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/api; Max-Age={age}' + secure
 
     def get_session(self, cookie):
         parsed = SimpleCookie()

@@ -166,7 +166,8 @@ const publicVenues = [
 
 function controllerFixture(places, {
   limit=40, photoStatus=200, detailsStatus=200, photoStatuses=[], usageAfterRetry=0,
-  reviewsEnabled=false, venueResearchConfigured=false, deferredDetails=null, searchCandidates=[], venueDetails={}
+  reviewsEnabled=false, venueResearchConfigured=false, deferredDetails=null, searchCandidates=[], venueDetails={},
+  retryAfter=0, now=()=>Date.now()
 }={}) {
   const nodes=new Map(), calls=[], linked=[];
   const domNode=tag=>({
@@ -203,7 +204,8 @@ function controllerFixture(places, {
     calls.push({route:'details',id,includeReviews,photosOnly,enrichmentOnly});
     const version=callsFor('details').filter(call=>call.id===id).length;
     if(deferredDetails && version===1) await deferredDetails(id);
-    if(detailsStatus!==200) return {ok:false,status:detailsStatus};
+    const status=typeof detailsStatus==='function' ? detailsStatus() : detailsStatus;
+    if(status!==200) return {ok:false,status,headers:new Headers(retryAfter ? {'Retry-After':String(retryAfter)} : {})};
     const author={displayName:'Fixture contributor',uri:'https://www.google.com/maps/contrib/123'};
     return {ok:true,json:async()=>({
       usage:{requestLimit:limit,requestsUsed:calls.length},
@@ -211,6 +213,7 @@ function controllerFixture(places, {
     })};
   };
   const context=vm.createContext({URL,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout,fetch,
+    Date:class extends Date {static now() {return now();}},
     InnerTableImport:require('../docs/prototype/imports.js'),
     document:{
       createElement:domNode,createTextNode:text=>({textContent:text}),
@@ -290,6 +293,22 @@ test('the details endpoint cap also leaves the photo check pending',async()=>{
   await controller.checkShortlistPhotos([place.id]);
   assert.equal(controller.photoState(place.id),'retryable');
   assert.equal(callsFor('photo').length,0);
+});
+
+test('a tab left open retries place checks when the daily Retry-After expires',async()=>{
+  const place=publicVenues[0];
+  let timestamp=0;
+  const {controller,getStatusCalls,callsFor}=controllerFixture([place],{
+    detailsStatus:()=>timestamp<2000 ? 429 : 200,retryAfter:2,now:()=>timestamp,
+  });
+  await controller.start();
+  await controller.checkShortlistPhotos([place.id]);
+  assert.equal(callsFor('details').length,1);
+  assert.equal((await controller.prepareForPlan([place.id])).checked,0);
+  assert.equal(getStatusCalls(),1);
+  timestamp=2000;
+  assert.equal((await controller.prepareForPlan([place.id])).checked,1);
+  assert.equal(getStatusCalls(),2);
 });
 
 test('only visible saved rows get photo checks, stopping abandoned rows and prioritizing a shortlist',async()=>{
