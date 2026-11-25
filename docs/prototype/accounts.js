@@ -38,7 +38,7 @@ async function resizeProfilePhoto(file) {
   } finally {image.close();}
 }
 
-function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}, onReady = () => {}}) {
+function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {}, onSetupRequired = () => {}, onReady = () => {}}) {
   const $ = selector => document.querySelector(selector);
   let signedIn = false;
   let mode = 'device';
@@ -48,6 +48,9 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   let busy = false;
   let blocked = false;
   let currentProfile = {};
+  let profileSetup = false;
+  let accountGuideReady = false;
+  const skippedProfiles = new Set();
   let photoDraft;
   let photoVersion = 0;
   let resizing = false;
@@ -56,6 +59,8 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
     currentProfile = profile;
     const name = profile.display_name || '';
     const username = profile.username || '';
+    $('#profile-name').value = name;
+    $('#profile-username').value = username;
     $('#profile-display-name').textContent = name || 'Your profile';
     $('#profile-display-handle').textContent = username ? `@${username}` : 'Choose a username to help friends find you.';
     $('#profile-display-bio').textContent = profile.bio || '';
@@ -87,6 +92,12 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   function render() {
     $('#account-auth').hidden = signedIn;
     $('#account-member').hidden = !signedIn;
+    $('#profile-editor').dataset.setup = String(profileSetup);
+    $('#profile-setup-intro').hidden = !profileSetup;
+    $('#profile-setup-skip').hidden = !profileSetup;
+    $('#profile-setup-skip').disabled = busy;
+    $('#profile-name').required = !profileSetup;
+    $('#profile-save').textContent = profileSetup ? 'Continue' : 'Save profile';
     $('#account-nav-label').textContent = 'Profile';
     $('#account-copy').textContent = `Copy ${getDevicePlaces().length} device places to my account`;
     $('#account-copy').disabled = busy || !getDevicePlaces().length;
@@ -147,9 +158,26 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
     render();
   }
   async function loadAccount(announce = true) {
+    const owner = currentProfile.id;
     await flush();
-    applyGuide(await request('guide'));
+    const guide = await request('guide');
+    if(!signedIn || currentProfile.id !== owner) return;
+    applyGuide(guide);
     if(announce)say('Your private account guide is ready.');
+    if(!accountGuideReady) {
+      accountGuideReady = true;
+      if(owner && !profileSetup) onReady(owner);
+    }
+  }
+  function skippedSetup(id) {
+    if(skippedProfiles.has(id)) return true;
+    try {return localStorage.getItem('inner-table-profile-setup:' + id) === 'skipped';}
+    catch {return false;}
+  }
+  function finishProfileSetup() {
+    profileSetup = false;
+    render();
+    if(accountGuideReady) onReady(currentProfile.id);
   }
   async function action(work) {
     if(busy)return;
@@ -183,24 +211,29 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
       $('#account-auth-form').hidden = !session.configured;
       $('#account-google').hidden = !session.configured;
       $('#account-setup').hidden = session.configured;
+      accountGuideReady = false;
+      profileSetup = false;
       if(signedIn) {
-        $('#profile-name').value = session.profile.display_name || '';
-        $('#profile-username').value = session.profile.username || '';
         renderProfile(session.profile);
-        await loadAccount(false);
+        profileSetup = Boolean(currentProfile.id && !currentProfile.username && !skippedSetup(currentProfile.id));
       }
       render();
       if(confirmationMessage) {
         say(confirmationMessage);
-        document.querySelector('[data-view="account"]').click();
+        if(!profileSetup) $('[data-view="account"]').click();
       }
-      if(signedIn) onReady(session.profile.id);
+      if(profileSetup) {
+        $('#profile-editor').open = true;
+        onSetupRequired();
+        $('#profile-username').focus();
+      }
+      if(signedIn) await loadAccount(false);
     } catch(error) {say(error.message);}
   }
   $('#account-auth-form').addEventListener('submit', event => {
     event.preventDefault();
     const route = event.submitter?.value === 'sign-up' ? 'sign-up' : 'sign-in';
-    action(async () => {
+    return action(async () => {
       try {
         const result = await request(route,{email:$('#account-email').value.trim(),password:$('#account-password').value});
         if(route === 'sign-up')say(result.message);
@@ -221,8 +254,10 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
   $('#account-profile-form').addEventListener('submit', event => {
     event.preventDefault();
     if(resizing) return;
-    action(async () => {
-      const profile = {display_name:$('#profile-name').value.trim(),username:$('#profile-username').value.trim()};
+    return action(async () => {
+      const username = $('#profile-username').value.trim();
+      const name = $('#profile-name').value.trim();
+      const profile = {display_name:profileSetup && !name ? username : name,username};
       if(currentProfile.profile_fields) {
         profile.bio = $('#profile-bio').value.trim();
         if(photoDraft !== undefined) profile.photo_data = photoDraft;
@@ -230,7 +265,17 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
       const result = await request('profile',profile);
       renderProfile({...result.profile,photo_version:Date.now()});
       say('Your private profile is saved.');
+      if(profileSetup) finishProfileSetup();
     });
+  });
+  $('#profile-setup-skip').addEventListener('click', () => {
+    if(!profileSetup || busy) return;
+    const id = currentProfile.id;
+    skippedProfiles.add(id);
+    try {localStorage.setItem('inner-table-profile-setup:' + id,'skipped');} catch {}
+    renderProfile(currentProfile);
+    say('You can choose a username from Profile anytime.');
+    finishProfileSetup();
   });
   $('#profile-photo').addEventListener('change', async event => {
     const file = event.target.files[0];
@@ -291,7 +336,8 @@ function createAccounts({getDevicePlaces, onGuide, onMode, onSession = () => {},
     $('#account-sync').textContent = '';
     signedIn = false;
     mode = 'device';
-    $('#account-profile-form').reset();
+    profileSetup = false;
+    accountGuideReady = false;
     renderProfile();
     onGuide(getDevicePlaces(),mode);
     say('Signed out. Your device guide is ready.');

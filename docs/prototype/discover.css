@@ -125,6 +125,19 @@ main:has(#discover-view:not([hidden])) {
   align-items: center;
 }
 #discover-view .list-heading p { font-size: 13px; }
+.shortlist-heading-actions, .shortlist-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  justify-content: space-between;
+}
+#shortlist-share-options { padding: 8px 0; border-bottom: 1px solid var(--line); }
+#shortlist-share-options p { margin: 4px 0; font-size: 13px; color: var(--muted); }
+#shortlist-share-options p:empty { margin: 0; }
+#shortlist-share-copy { min-height: 44px; }
+#shortlist-share-preview-label { display: block; margin-top: 8px; font-size: 13px; font-weight: 650; }
+#shortlist-share-preview { display: block; width: 100%; margin: 4px 0; font: inherit; font-weight: 400; }
 #shortlist-heading { scroll-margin-top: 85px; }
 
 #discover-view .card { padding: 18px 0 10px; }
@@ -148,9 +161,20 @@ main:has(#discover-view:not([hidden])) {
 }
 #discover-view .place-more { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted); }
 #discover-view .place-more summary { min-height: 44px; align-content: center; color: var(--wine); }
-#discover-view .reason { margin: 0 0 8px; font-size: 13px; color: var(--ink); }
-#discover-view .reason h4 { margin: 0; }
-#discover-view .reason p { margin: 4px 0 0; }
+#discover-view .reason { margin: 9px 0 5px; padding: 0; border: 0; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+#discover-view .reason h4 { margin: 0; font-size: 13px; }
+#discover-view .reason p { margin: 2px 0 0; }
+.shortlist-share-choice {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  width: fit-content;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.shortlist-share-choice input { width: 18px; height: 18px; flex: none; accent-color: var(--wine); }
 #discover-view .place-provenance { margin: 0; overflow-wrap: anywhere; }
 #discover-view .tags { align-items: baseline; gap: 4px 11px; margin: 7px 0; }
 #discover-view .tag, #discover-view .visit-status { font-size: 12px; }

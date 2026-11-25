@@ -59,6 +59,32 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(usage.record_ai.call_args.args[0], status)
                 self.assertTrue(body.closed)
 
+    def test_match_reason_is_direct_and_keeps_source_links(self):
+        data = self.data()
+        data["places"][0]["googleEvidenceURL"] = "https://www.google.com/maps/place/Fixture"
+        result = {
+            "reply": "This could work for your catch-up.",
+            "matches": [{
+                "id": "fictional-1",
+                "reason": "According to Google Maps, the back room could suit your catch-up. "
+                          "For lunch, Google Maps says it has a separate bar. "
+                          "The tables are indoors, according to Google Maps.",
+                "sourceIds": ["1"]
+            }],
+        }
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.read.return_value = json.dumps({"choices": [{"message": {"content": json.dumps(result)}}]}).encode()
+        with patch("planner.urlopen", return_value=response) as upstream:
+            answer = Planner("fixture").recommend(data)
+        prompt = json.loads(upstream.call_args.args[0].data)["messages"][0]["content"]
+        self.assertIn("addressed to the person making the plan", prompt)
+        self.assertEqual(answer["matches"][0]["reason"],
+                         "The back room could suit your catch-up. For lunch, it has a separate bar. The tables are indoors.")
+        self.assertEqual(answer["matches"][0]["sources"],
+                         [{"label": "Google Maps", "url": data["places"][0]["googleEvidenceURL"]}])
+
     def test_malformed_model_reply_has_safe_error(self):
         response = Mock()
         response.__enter__ = Mock(return_value=response)

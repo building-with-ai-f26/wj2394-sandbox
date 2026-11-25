@@ -3,6 +3,7 @@ const I = InnerTableImport;
 const STORE = 'inner-table-places-v1';
 let account = null, friends = null, friendGuide = null, guideMode = 'device';
 let signedInAccountId = null;
+let profileSetupOpened = false;
 let places = [], pending = null, storageBroken = false;
 let demoMode = false, browseFriendPlaces = false;
 let enrichmentReady = false;
@@ -295,6 +296,80 @@ $('#leave-demo').addEventListener('click', () => {
   if(!tour.hidden) renderTour();
 });
 let planResults = null;
+let shortlistSharing = false;
+let shareableShortlist = [];
+const shortlistSelection = new Set();
+
+function clearShareFeedback() {
+  $('#shortlist-share-status').textContent = '';
+  $('#shortlist-share-preview-label').hidden = true;
+  $('#shortlist-share-preview').value = '';
+}
+
+function updateShortlistShare() {
+  const share = $('#shortlist-share');
+  share.hidden = !shareableShortlist.length;
+  share.textContent = shortlistSharing ? 'Close sharing' : 'Share places';
+  share.setAttribute('aria-expanded', String(shortlistSharing));
+  $('#shortlist-share-options').hidden = !shortlistSharing;
+  $('#shortlist-share-copy').disabled = !shortlistSelection.size;
+  $('#shortlist-share-count').textContent = shortlistSelection.size
+    ? `${shortlistSelection.size} selected`
+    : 'Select places to share.';
+}
+
+function reservationLink(place) {
+  if(place.reservationURL) return I.sourceURL(place.reservationURL);
+  const website = I.sourceURL(place._google?.websiteUri);
+  if(!website) return '';
+  const url = new URL(website);
+  const dedicatedPage = /\/(?:reservations?|book-a-table)(?:\/|$)/i.test(url.pathname);
+  const resyVenue = /^(?:www\.)?resy\.com$/.test(url.hostname) && /\/venues\/[^/]+/.test(url.pathname);
+  return dedicatedPage || resyVenue ? website : '';
+}
+
+function formatSharedPlaces(selected) {
+  return selected.map(place => {
+    const category = place.typeLabel || (place.category !== 'unknown' ? I.categoryLabel(place.category) : '');
+    const description = (demoMode && place.description) || [category,place.neighborhood].filter(Boolean).join(' · ')
+      || place._google?.formattedAddress;
+    const maps = google.placeURL(place);
+    const reservation = reservationLink(place);
+    return [place.name,description,maps && 'Google Maps: ' + maps,reservation && 'Reservations: ' + reservation]
+      .filter(Boolean).join('\n');
+  }).join('\n\n');
+}
+
+$('#shortlist-share').addEventListener('click', () => {
+  shortlistSharing = !shortlistSharing;
+  shortlistSelection.clear();
+  clearShareFeedback();
+  renderDiscover();
+});
+
+$('#shortlist-share-copy').addEventListener('click', async () => {
+  const selected = shareableShortlist.filter(place=>shortlistSelection.has(String(place.id)));
+  if(!selected.length) return;
+  const text = formatSharedPlaces(selected);
+  const current = planResults;
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {}
+  if(current !== planResults || !shortlistSharing || selected.length !== shortlistSelection.size ||
+      selected.some(place=>!shortlistSelection.has(String(place.id)))) return;
+  const status = $('#shortlist-share-status');
+  status.textContent = copied ? 'Copied. Paste the places into a chat or email.' : 'Select and copy the text below.';
+  if(!copied) {
+    const preview = $('#shortlist-share-preview');
+    preview.value = text;
+    $('#shortlist-share-preview-label').hidden = false;
+    preview.focus();
+    preview.select();
+  }
+});
+
 function shortlistPhotoIds(result) {
   if(demoMode || !result) return [];
   const placesById = new Map(discoverPlaces().map(place=>[String(place.id),place]));
@@ -317,6 +392,9 @@ const planChat = createPlanChat({
   },
   onResults: result => {
     planResults = result;
+    shortlistSharing = false;
+    shortlistSelection.clear();
+    clearShareFeedback();
     browseFriendPlaces = false;
     $('#shortlist-feedback-status').textContent = '';
     google.checkShortlistPhotos(shortlistPhotoIds(result));
@@ -332,6 +410,8 @@ function renderDiscover() {
   $('#guide-picker').hidden = demoMode;
   const results = $('#results');
   const expanded = new Set([...results.querySelectorAll('.place-more[open]')].map(detail=>detail.parentElement.dataset.placeId));
+  const focusedSelection = document.activeElement?.classList.contains('shortlist-share-checkbox')
+    ? document.activeElement.closest('[data-place-id]').dataset.placeId : '';
   results.replaceChildren();
   const hasReply = planResults !== null;
   const browsing = !!friendGuide && !demoMode && browseFriendPlaces;
@@ -359,6 +439,8 @@ function renderDiscover() {
   $('#discover-view .method').hidden = !showShortlist;
   if(!browsing) observePhotoRows(results,false);
   if(!showPlaces) {
+    shareableShortlist = [];
+    updateShortlistShare();
     $('#result-summary').textContent = '';
     return;
   }
@@ -371,6 +453,14 @@ function renderDiscover() {
     outcome.recognized = true;
     outcome.unsupported = false;
   }
+  shareableShortlist = showShortlist ? outcome.matches.map(({place})=>place) : [];
+  const shareableIds = new Set(shareableShortlist.map(place=>String(place.id)));
+  for(const id of shortlistSelection) if(!shareableIds.has(id)) shortlistSelection.delete(id);
+  if(!shareableIds.size) {
+    shortlistSharing = false;
+    clearShareFeedback();
+  }
+  updateShortlistShare();
   $('#result-summary').textContent = `${outcome.matches.length} ${outcome.matches.length === 1 ? 'place' : 'places'} · ${demoMode ? 'NYC sample guide' : friendGuide ? friendName + '’s guide' : 'Your guide'}`;
   if (!outcome.matches.length) {
     const empty = element('div','empty');
@@ -398,18 +488,18 @@ function renderDiscover() {
     if(!demoMode)body.append(element('p','card-source',friendGuide ? `Saved by ${friendGuide.owner.display_name || friendGuide.owner.username}` : 'Saved by you'));
     if(demoMode) body.append(element('p','sample-description',place.description));
     if(place.note) body.append(element('blockquote','note',place.note));
+    if(showShortlist && reasons.some(Boolean)) {
+      const fit = element('div','reason');
+      fit.append(element('h4','','Why it fits'),element('p','',reasons.join(' ')));
+      body.append(fit);
+    }
 
     addPlacePhoto(card,place,body);
     card.append(body);
     const detail = element('details','place-more');
     detail.open = expanded.has(String(place.id));
     detail.append(element('summary','','Place details'));
-    if(showShortlist) {
-      const fit = element('section','reason');
-      fit.append(element('h4','','Why it fits'),element('p','',reasons.join(' ')));
-      appendMatchSources(fit,sources);
-      detail.append(fit);
-    }
+    if(showShortlist) appendMatchSources(detail,sources);
     const links = element('div','place-links');
     if(demoMode) {
       detail.append(element('p','small',place.address));
@@ -435,7 +525,25 @@ function renderDiscover() {
     if(url) links.append(externalLink('Open in Maps',url,'place-map'));
     detail.append(links);
     card.append(detail);
+    let shareCheckbox;
+    if(showShortlist && shortlistSharing) {
+      const id = String(place.id);
+      const label = element('label','shortlist-share-choice');
+      const checkbox = element('input','shortlist-share-checkbox');
+      checkbox.type = 'checkbox';
+      checkbox.checked = shortlistSelection.has(id);
+      checkbox.addEventListener('change', () => {
+        if(checkbox.checked) shortlistSelection.add(id);
+        else shortlistSelection.delete(id);
+        clearShareFeedback();
+        updateShortlistShare();
+      });
+      label.append(checkbox,element('span','','Select ' + place.name));
+      card.append(label);
+      if(id === focusedSelection) shareCheckbox = checkbox;
+    }
     results.append(card);
+    shareCheckbox?.focus({preventScroll:true});
   });
   observePhotoRows(results,browsing && !$('#discover-view').hidden);
 }
@@ -828,7 +936,7 @@ const tourSample = $('#tour-sample');
 const tourSteps = [
   ['#guide-context', 'Choose a guide', 'Open Search in to choose My places or a friend’s approved guide.'],
   ['#search-form .search-field', 'Describe your plan', 'Tell us who’s coming, what you feel like, or an area and budget. An example fills the draft so you can edit it before sending.'],
-  ['#shortlist-anchor', 'Read the shortlist', 'The list shows who saved each place and their note. Open Place details for the explanation and Maps link when available.']
+  ['#shortlist-anchor', 'Read the shortlist', 'See who saved each place and why it fits your plan. Open Place details for sources and the Maps link.']
 ];
 let tourStep = 0;
 let tourTarget = null;
@@ -897,19 +1005,32 @@ document.addEventListener('keydown', event => {
 });
 
 account = createAccounts({
+  onSetupRequired: () => {
+    profileSetupOpened = true;
+    showView('account');
+  },
   onSession: signedIn => {
     friends.setSession(signedIn);
     if(!signedIn) {
       signedInAccountId = null;
+      profileSetupOpened = false;
       dismissTour();
     }
   },
   onReady: id => {
     if(!id || id === signedInAccountId) return;
+    const finishedSetup = profileSetupOpened;
+    profileSetupOpened = false;
     signedInAccountId = id;
     let seen = tourSeen.has(id);
     try {seen ||= localStorage.getItem('inner-table-tour-v1:' + id) === 'seen';} catch {}
-    if(seen) return;
+    if(seen) {
+      if(finishedSetup && !$('#account-view').hidden) {
+        showView('discover');
+        $('#discover-title').focus();
+      }
+      return;
+    }
     tourSeen.add(id);
     try {localStorage.setItem('inner-table-tour-v1:' + id, 'seen');} catch {}
     startTour();
