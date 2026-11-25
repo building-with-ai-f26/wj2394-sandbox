@@ -134,7 +134,8 @@ class Planner:
         self.lock = threading.Lock()
         self.used = 0
 
-    def recommend(self, data, shortlist=False, *, unlimited=False):
+    @staticmethod
+    def validate_input(data):
         messages, places = data.get("messages"), data.get("places")
         if not isinstance(messages, list) or not 1 <= len(messages) <= 20:
             raise PlanError("Start a new conversation after 20 messages.")
@@ -143,12 +144,17 @@ class Planner:
                 raise PlanError("Keep each message under 2,000 characters.")
         if not isinstance(places, list) or len(places) > 2000:
             raise PlanError("This guide is too large for one conversation.")
-        guide, links_by_place = [], {}
         for place in places:
             if not isinstance(place, dict) or not isinstance(place.get("id"), str):
                 raise PlanError("Invalid guide entry.")
             if not isinstance(place.get("tags", []), list) or not isinstance(place.get("googleReviewTags", []), list):
                 raise PlanError("Invalid guide tags.")
+        return messages, places
+
+    def recommend(self, data, shortlist=False, *, unlimited=False):
+        messages, places = self.validate_input(data)
+        guide, links_by_place = [], {}
+        for place in places:
             clean = {key: str(place.get(key, ""))[:1000] for key in ("id", "name", "category", "neighborhood", "note", "status", "googleAddress", "googleCategory", "googleDescription")}
             if isinstance(place.get("publicDescription"), str):
                 clean["publicDescription"] = place["publicDescription"][:1000]

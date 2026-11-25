@@ -132,11 +132,12 @@ class PublicModeTests(unittest.TestCase):
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         try:
-            self.assertEqual(post('/api/plan',visitor_cookie,{'ownerId':owner_id,'unlimited':True})[0],429)
-            self.assertEqual(post('/api/plan',f'inner_table_session_v2={owner_id}')[0],429)
+            plan = {'messages':[{'role':'user','content':'Fixture plan'}],'places':[{'id':'public-fixture'}]}
+            self.assertEqual(post('/api/plan',visitor_cookie,{**plan,'ownerId':owner_id,'unlimited':True})[0],429)
+            self.assertEqual(post('/api/plan',f'inner_table_session_v2={owner_id}',plan)[0],429)
             server.planner.recommend.assert_not_called()
-            self.assertEqual(post('/api/plan',owner_cookie)[0],200)
-            server.planner.recommend.assert_called_once_with({},shortlist=False,unlimited=True)
+            self.assertEqual(post('/api/plan',owner_cookie,plan)[0],200)
+            server.planner.recommend.assert_called_once_with(plan,shortlist=False,unlimited=True)
             self.assertEqual(post('/api/places/research',owner_cookie,{'name':'Public fixture'})[0],200)
             server.venue_research.check.assert_called_once_with({'name':'Public fixture'},unlimited=True)
             upstream = Mock(status=200)
@@ -153,6 +154,74 @@ class PublicModeTests(unittest.TestCase):
             with patch.object(accounts,'handle',return_value=({'signedIn':True},owner_cookie)):
                 self.assertEqual(post('/api/account/sign-in')[0],200)
             self.assertEqual(server.api_limiter.consume.call_count,calls)
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_public_quota_ignores_invalid_requests_and_uses_render_edge_ip(self):
+        server = ThreadingHTTPServer(('127.0.0.1', 0), QuietHandler)
+        server.public_origin = 'https://demo.example'
+        server.render_public_edge = True
+        server.api_limiter = Mock()
+        server.api_limiter.consume.return_value = 0
+        server.places = GooglePlaces()
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connection = HTTPConnection('127.0.0.1', server.server_port)
+        headers = {'Host':'demo.example','Origin':'https://demo.example',
+                   'Content-Type':'application/json'}
+
+        def send(method, path, body=None, **extra_headers):
+            connection.request(method, path, body, {**headers, **extra_headers})
+            response = connection.getresponse()
+            response.read()
+            return response.status
+
+        try:
+            for method, path, body, status in (
+                ('GET', '/api/account/unknown', None, 404),
+                ('POST', '/api/account/unknown', '{}', 404),
+                ('POST', '/api/status', '{}', 404),
+                ('POST', '/api/plan', '{', 400),
+                ('POST', '/api/plan', '[]', 400),
+                ('POST', '/api/plan', '{}', 400),
+                ('POST', '/api/plan', '{"messages":[{"role":"user","content":"Dinner"}],"places":[{}]}', 400),
+                ('POST', '/api/places/search', '{}', 400),
+                ('POST', '/api/places/research', '{}', 400),
+                ('POST', '/api/places/details', '{"placeId":"abc"}', 400),
+                ('GET', '/api/places/photo', None, 400),
+                ('POST', '/api/account/connections', '{}', 401),
+                ('POST', '/api/account/guide', '{', 401),
+                ('POST', '/api/import/maps-list', '{}', 400),
+            ):
+                with self.subTest(method=method, path=path, body=body):
+                    self.assertEqual(send(method,path,body),status)
+            self.assertEqual(send('POST','/api/plan','{}',**{'Content-Type':'text/plain'}),415)
+            connection.putrequest('POST','/api/plan',skip_host=True)
+            for name, value in headers.items():
+                connection.putheader(name,value)
+            connection.putheader('Content-Length','2')
+            connection.putheader('Content-Length','3')
+            connection.endheaders(b'{}')
+            response = connection.getresponse()
+            self.assertEqual(response.status,400)
+            response.read()
+            server.api_limiter.consume.assert_not_called()
+
+            self.assertEqual(send('GET','/api/status',
+                                  **{'CF-Connecting-IP':'2001:db8::40','X-Forwarded-For':'192.0.2.9'}),200)
+            server.api_limiter.consume.assert_called_once_with('2001:db8::40',priority=False,owner=False)
+
+            self.assertEqual(send('GET','/api/status',
+                                  **{'CF-Connecting-IP':'192.0.2.9, 192.0.2.10','X-Forwarded-For':'192.0.2.9'}),200)
+            server.api_limiter.consume.assert_called_with('127.0.0.1',priority=False,owner=False)
+            self.assertEqual(send('GET','/api/status',**{'X-Forwarded-For':'192.0.2.9'}),200)
+            server.api_limiter.consume.assert_called_with('127.0.0.1',priority=False,owner=False)
+            server.render_public_edge = False
+            self.assertEqual(send('GET','/api/status',**{'CF-Connecting-IP':'192.0.2.9'}),200)
+            server.api_limiter.consume.assert_called_with('127.0.0.1',priority=False,owner=False)
         finally:
             connection.close()
             server.shutdown()

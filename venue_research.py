@@ -265,16 +265,20 @@ class VenueResearch:
         self.used = 0
         self.lock = threading.Lock()
 
-    def check(self, data, *, unlimited=False):
+    @staticmethod
+    def validate_input(data):
         name, area = data.get("name"), data.get("area", "")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200 or not isinstance(area, str) or len(area) > 100:
             raise PlanError("Choose a saved venue with a name.")
         confirmed_address = data.get("address", "")
         if not isinstance(confirmed_address, str) or len(confirmed_address) > 200:
             raise PlanError("The confirmed place address is invalid.")
+        return name.strip(), area, confirmed_address
+
+    def check(self, data, *, unlimited=False):
+        name, area, confirmed_address = self.validate_input(data)
         if not self.key:
             raise PlanError("Public web lookups are unavailable.", 503)
-        name = name.strip()
         if not unlimited:
             with self.lock:
                 if self.used >= self.limit:

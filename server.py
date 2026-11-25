@@ -17,11 +17,29 @@ from planner import DEFAULT_SEARCH_MODEL, Planner, PlanError
 from venue_research import VenueResearch
 from accounts import Accounts, AccountError
 from daily_limits import DailyRequestQuota, QuotaUnavailable
-from shared_lists import fetch_shared_list, SharedListError
+from shared_lists import allowed_url, fetch_shared_list, SharedListError
 
 ROOT = Path(__file__).resolve().parent
 PLACE_ID = re.compile(r"[A-Za-z0-9_-]{5,255}\Z")
 PHOTO_NAME = re.compile(r"places/[A-Za-z0-9_-]{5,255}/photos/[A-Za-z0-9_-]{1,2000}\Z")
+PLAN_ROUTES = {"/api/plan", "/api/plan/shortlist", "/api/account/plan", "/api/account/plan/shortlist"}
+ACCOUNT_ENTRY = {
+    ("GET", "/api/account/session"), ("GET", "/api/account/google/callback"),
+    ("POST", "/api/account/google/start"), ("POST", "/api/account/sign-in"),
+    ("POST", "/api/account/sign-up"), ("POST", "/api/account/sign-out"),
+}
+API_ROUTES = {
+    "GET": {"/api/status", "/api/places/photo", "/api/account/session", "/api/account/guide",
+            "/api/account/avatar", "/api/account/google/callback"},
+    "POST": PLAN_ROUTES | {
+        "/api/account/google/start", "/api/account/sign-in", "/api/account/sign-up",
+        "/api/account/sign-out", "/api/account/guide", "/api/account/migrate",
+        "/api/account/profile", "/api/account/connections", "/api/account/find-friend",
+        "/api/account/follow", "/api/account/approve", "/api/account/revoke",
+        "/api/account/unfollow", "/api/account/friend-guide", "/api/import/maps-list",
+        "/api/places/search", "/api/places/details", "/api/places/research",
+    },
+}
 
 
 def public_app_origin():
@@ -126,13 +144,17 @@ class GooglePlaces:
                     sku = "Place Details Enterprise + Atmosphere" if fields and "reviews" in fields else "Place Details Enterprise"
                 self.usage.record(operation, http_status, round((time.monotonic() - started) * 1000), sku)
 
-    def search(self, name, neighborhood="", include_photos=False, *, unlimited=False):
+    @staticmethod
+    def validate_search(name, neighborhood, include_photos):
         if not isinstance(name, str) or not name.strip() or len(name) > 200:
             raise PlacesError("Provide a place name up to 200 characters.")
         if not isinstance(neighborhood, str) or len(neighborhood) > 100:
             raise PlacesError("Invalid neighborhood.")
         if not isinstance(include_photos, bool):
             raise PlacesError("Invalid photo option.")
+
+    def search(self, name, neighborhood="", include_photos=False, *, unlimited=False):
+        self.validate_search(name, neighborhood, include_photos)
         fields = "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.attributions"
         if include_photos:
             fields += ",places.photos"
@@ -147,7 +169,7 @@ class GooglePlaces:
                 place["photos"] = (place.get("photos") or [])[:1]
         return {"places": places}
 
-    def details(self, place_id, include_reviews=False, photos_only=False, enrichment_only=False, *, unlimited=False):
+    def validate_details(self, place_id, include_reviews, photos_only, enrichment_only):
         if not isinstance(place_id, str) or not PLACE_ID.fullmatch(place_id):
             raise PlacesError("Invalid Google place ID.")
         if not isinstance(include_reviews, bool):
@@ -158,6 +180,9 @@ class GooglePlaces:
             raise PlacesError("Choose one place details option.")
         if include_reviews and not self.reviews:
             raise PlacesError("Reviews are disabled locally. Set GOOGLE_PLACES_REVIEWS_ENABLED=true to enable the higher-priced review tier.")
+
+    def details(self, place_id, include_reviews=False, photos_only=False, enrichment_only=False, *, unlimited=False):
+        self.validate_details(place_id, include_reviews, photos_only, enrichment_only)
         fields = PLACE_PHOTO_FIELDS if photos_only else PLACE_ENRICHMENT_FIELDS
         if not photos_only and not enrichment_only:
             fields += ",priceRange,websiteUri"
@@ -170,9 +195,13 @@ class GooglePlaces:
             data["reviews"] = data.get("reviews", [])[:5] if include_reviews else []
         return data
 
-    def photo(self, name, *, unlimited=False):
+    @staticmethod
+    def validate_photo(name):
         if not isinstance(name, str) or not PHOTO_NAME.fullmatch(name):
             raise PlacesError("Invalid photo resource.")
+
+    def photo(self, name, *, unlimited=False):
+        self.validate_photo(name)
         data = self.request(name + "/media", query={"maxWidthPx": 800, "skipHttpRedirect": "true"}, unlimited=unlimited)
         uri = data.get("photoUri", "")
         parsed = urlsplit(uri)
@@ -223,7 +252,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Strict-Transport-Security', 'max-age=31536000')
         super().end_headers()
 
-    def check_request(self, oauth_callback=False):
+    def validate_request(self, route):
+        oauth_callback = route == '/api/account/google/callback'
         host = self.headers.get("Host", "")
         public_origin = getattr(self.server, 'public_origin', '')
         expected_origin = public_origin or 'http://' + host
@@ -233,12 +263,32 @@ class Handler(SimpleHTTPRequestHandler):
             raise PlacesError("Open Inner Table. at its app address to make this request.", 403)
         if public_origin and self.command == 'POST' and origin != public_origin:
             raise PlacesError('This request needs to come from the app.', 403)
+        if route not in API_ROUTES[self.command]:
+            raise PlacesError('Not found.', 404)
         accounts = getattr(self.server, 'accounts', None)
         session = accounts.get_session(self.headers.get('Cookie'))[1] if accounts else None
+        if (public_origin and route.startswith('/api/account/') and not session
+                and (self.command, route) not in ACCOUNT_ENTRY):
+            raise AccountError('Please sign in to use your account guide.', 401)
+        return session
+
+    def quota_visitor(self):
+        # The documented Cloudflare header is trusted only for this Render public edge.
+        forwarded = self.headers.get_all('CF-Connecting-IP', [])
+        if getattr(self.server, 'render_public_edge', False) and len(forwarded) == 1:
+            address = forwarded[0].strip()
+            if '%' not in address:
+                try:
+                    return str(ipaddress.ip_address(address))
+                except ValueError:
+                    pass
+        return self.client_address[0]
+
+    def charge_request(self, route, session):
+        public_origin = getattr(self.server, 'public_origin', '')
         owner_id = getattr(self.server, 'demo_owner_id', None)
         owner = bool(owner_id and session and session['user']['id'] == owner_id)
-        if public_origin and not oauth_callback:
-            route = urlsplit(self.path).path
+        if public_origin and route != '/api/account/google/callback':
             endpoint = (self.command, route)
             if endpoint == ('POST', '/api/account/sign-out') or (not session and endpoint in {
                 ('GET', '/api/account/session'),
@@ -247,21 +297,35 @@ class Handler(SimpleHTTPRequestHandler):
             }):
                 # Keep account switching reachable under the auth system's own controls.
                 return False
-            # Render supplies the visitor address as the first forwarded entry.
-            forwarded = self.headers.get('X-Forwarded-For', '').split(',')[0].strip()
-            try:
-                visitor = str(ipaddress.ip_address(forwarded or self.client_address[0]))
-            except ValueError:
-                visitor = self.client_address[0]
             priority = route.startswith('/api/account/') or route in ('/api/plan', '/api/plan/shortlist')
             try:
-                retry_after = self.server.api_limiter.consume(visitor, priority=priority, owner=owner)
+                retry_after = self.server.api_limiter.consume(self.quota_visitor(), priority=priority, owner=owner)
             except QuotaUnavailable:
                 raise PlacesError('The demo allowance is temporarily unavailable. Please try again.', 503) from None
             if retry_after:
                 message = ('Today’s demo allowance is used.' if priority else 'Today’s background allowance is used.')
                 raise PlacesError(message + ' Try again after midnight New York time.', 429, retry_after)
         return owner
+
+    def read_request_json(self, route):
+        if len(self.headers.get_all("Content-Type", [])) != 1 or self.headers.get_content_type() != "application/json":
+            raise PlacesError("Send JSON.", 415)
+        lengths = self.headers.get_all("Content-Length", [])
+        if len(lengths) != 1 or not re.fullmatch(r"[0-9]+", lengths[0]) or self.headers.get("Transfer-Encoding"):
+            raise PlacesError("Invalid JSON or request length.")
+        maximum = (20_000_000 if route in ('/api/account/guide', '/api/account/migrate')
+                   else 1_000_000 if route in PLAN_ROUTES
+                   else 124_000 if route == '/api/account/profile' else 8192)
+        length = int(lengths[0])
+        if not 0 < length <= maximum:
+            raise PlacesError("Request too large or empty.", 413)
+        raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise PlacesError("Invalid JSON or request length.")
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise PlacesError("Send a JSON object.")
+        return data
 
     def json_response(self, data, status=200, cookie=None, retry_after=None):
         content = json.dumps(data).encode()
@@ -287,7 +351,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             return super().do_GET()
         try:
-            owner_request = self.check_request(oauth_callback=route.path == '/api/account/google/callback')
+            session = self.validate_request(route.path)
+            if route.path == '/api/places/photo':
+                photo_name = parse_qs(route.query).get("name", [""])[0]
+                GooglePlaces.validate_photo(photo_name)
+            owner_request = self.charge_request(route.path, session)
             if route.path == '/api/account/google/callback':
                 try:
                     _, cookie = self.server.accounts.finish_google(parse_qs(route.query).get('code', [''])[0], self.headers.get('Cookie'))
@@ -323,7 +391,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "venueResearchConfigured": bool(getattr(getattr(self.server, "venue_research", None), "key", "")),
                 })
             elif route.path == "/api/places/photo":
-                content, mime = self.server.places.photo(parse_qs(route.query).get("name", [""])[0], unlimited=owner_request)
+                content, mime = self.server.places.photo(photo_name, unlimited=owner_request)
                 self.send_response(200)
                 self.send_header("Content-Type", mime)
                 self.send_header("Content-Length", str(len(content)))
@@ -336,16 +404,24 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            owner_request = self.check_request()
-            if self.headers.get_content_type() != "application/json":
-                raise PlacesError("Send JSON.", 415)
-            length = int(self.headers.get("Content-Length", "0"))
-            maximum = 20_000_000 if self.path in ('/api/account/guide', '/api/account/migrate') else 1_000_000 if self.path in ('/api/plan', '/api/plan/shortlist', '/api/account/plan', '/api/account/plan/shortlist') else 124_000 if self.path == '/api/account/profile' else 8192
-            if not 0 < length <= maximum:
-                raise PlacesError("Request too large or empty.", 413)
-            data = json.loads(self.rfile.read(length))
-            if not isinstance(data, dict):
-                raise PlacesError("Send a JSON object.")
+            session = self.validate_request(self.path)
+            data = self.read_request_json(self.path)
+            if self.path in PLAN_ROUTES:
+                Planner.validate_input(data)
+            if self.path == '/api/import/maps-list':
+                maps_url = data.get('url')
+                if not isinstance(maps_url, str) or len(maps_url) > 4000 or not allowed_url(maps_url.strip()):
+                    raise PlacesError('Paste an HTTPS Google Maps list link.')
+            if self.path == '/api/places/research':
+                VenueResearch.validate_input(data)
+            if self.path == '/api/places/search':
+                search_input = (data.get("name"), data.get("neighborhood", ""), data.get("includePhotos", False))
+                GooglePlaces.validate_search(*search_input)
+            if self.path == '/api/places/details':
+                details_input = (data.get("placeId"), data.get("includeReviews", False),
+                                 data.get("photosOnly", False), data.get("enrichmentOnly", False))
+                self.server.places.validate_details(*details_input)
+            owner_request = self.charge_request(self.path, session)
             if self.path == '/api/account/google/start':
                 origin = getattr(self.server, 'public_origin', '') or 'http://' + self.headers['Host']
                 result, cookie = self.server.accounts.start_google(origin)
@@ -375,12 +451,9 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response(self.server.venue_research.check(data, unlimited=owner_request))
                 return
             elif self.path == "/api/places/search":
-                result = self.server.places.search(data.get("name"), data.get("neighborhood", ""),
-                                                   include_photos=data.get("includePhotos", False), unlimited=owner_request)
+                result = self.server.places.search(*search_input, unlimited=owner_request)
             elif self.path == "/api/places/details":
-                result = self.server.places.details(data.get("placeId"), data.get("includeReviews", False),
-                                                    photos_only=data.get("photosOnly", False),
-                                                    enrichment_only=data.get("enrichmentOnly", False), unlimited=owner_request)
+                result = self.server.places.details(*details_input, unlimited=owner_request)
             else:
                 raise PlacesError("Not found.", 404)
             self.json_response({"result": result, "usage": self.server.places.status(unlimited=owner_request)})
@@ -421,6 +494,7 @@ def main():
             parser.error(str(error))
     server = ThreadingHTTPServer(('0.0.0.0' if origin else '127.0.0.1', args.port), Handler)
     server.public_origin = origin
+    server.render_public_edge = bool(origin and os.getenv('RENDER') == 'true' and os.getenv('RENDER_EXTERNAL_URL'))
     server.api_limiter = api_limiter
     server.demo_owner_id = owner_id
     server.accounts = accounts
